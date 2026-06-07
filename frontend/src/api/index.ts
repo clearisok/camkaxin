@@ -8,7 +8,15 @@ const api = axios.create({
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    const message = err.response?.data?.error || err.message || '请求失败';
+    const e = err as Error & { code?: string; response?: { status?: number; data?: { error?: string } }; config?: { url?: string } };
+    // #region agent log
+    fetch('http://127.0.0.1:7866/ingest/949bb3a4-1e98-433b-8c2f-5ab46646876f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f51ef'},body:JSON.stringify({sessionId:'6f51ef',location:'api/index.ts:interceptor',message:'API request failed',data:{message:e.message,name:e.name,code:(err as {code?:string}).code,status:err.response?.status,responseError:err.response?.data?.error,url:err.config?.url},timestamp:Date.now(),hypothesisId:'D',runId:'pre-fix'})}).catch(()=>{});
+    // #endregion
+    if (!err.response && (e.code === 'ERR_NETWORK' || e.message === 'Network Error')) {
+      return Promise.reject(new Error('无法连接后端服务，请确认已运行 npm run dev'));
+    }
+    const raw = err.response?.data?.error || err.message || '请求失败';
+    const message = typeof raw === 'string' ? raw.replace(/^Error:\s*/i, '') : String(raw);
     return Promise.reject(new Error(message));
   }
 );
@@ -17,15 +25,15 @@ export default api;
 
 // Agents
 export const getAgents = () => api.get('/agents').then((r) => r.data);
-export const createAgent = (data: { name: string; status?: string }) =>
+export const createAgent = (data: { name: string; status?: string; default_wastage?: number; brand_id?: number }) =>
   api.post('/agents', data).then((r) => r.data);
-export const updateAgent = (id: number, data: { name?: string; status?: string }) =>
+export const updateAgent = (id: number, data: { name?: string; status?: string; default_wastage?: number; brand_id?: number | null }) =>
   api.put(`/agents/${id}`, data).then((r) => r.data);
 export const deleteAgent = (id: number) => api.delete(`/agents/${id}`).then((r) => r.data);
 
 // Brands
 export const getBrands = () => api.get('/brands').then((r) => r.data);
-export const createBrand = (data: { name: string; agent_id?: number; status?: string }) =>
+export const createBrand = (data: { name: string; status?: string }) =>
   api.post('/brands', data).then((r) => r.data);
 export const updateBrand = (id: number, data: Record<string, unknown>) =>
   api.put(`/brands/${id}`, data).then((r) => r.data);
@@ -75,8 +83,24 @@ export const uploadFile = (file: File, onProgress?: (percent: number) => void) =
     },
   }).then((r) => r.data);
 };
-export const exportExcel = (quotationId: number, templateId?: number, splitByItem = false) =>
-  api.post('/settings/export-excel', { quotation_id: quotationId, template_id: templateId, split_by_item: splitByItem }, { responseType: 'blob' });
+export const exportExcel = (
+  quotationId: number,
+  templateId?: number,
+  splitByItem = false,
+  filename?: string
+) =>
+  api.post('/settings/export-excel', {
+    quotation_id: quotationId,
+    template_id: templateId,
+    split_by_item: splitByItem,
+    filename,
+  }, { responseType: 'blob' });
+
+export const getExportFilename = (quotationId: number) =>
+  api.get(`/settings/export-filename/${quotationId}`).then((r) => r.data);
+
+export const exportSummary = (quotationIds: number[]) =>
+  api.post('/settings/export-summary', { quotation_ids: quotationIds }, { responseType: 'blob' });
 
 // Quotations
 export const getQuotations = (params?: Record<string, unknown>) =>

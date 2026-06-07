@@ -16,7 +16,27 @@ body {
 
 @layer components {
   .page-container {
-    @apply p-6 max-w-[1600px] mx-auto;
+    @apply p-5 max-w-[1600px] mx-auto;
+  }
+
+  .page-header {
+    @apply flex justify-between items-center mb-4 gap-3;
+  }
+
+  .page-header-title {
+    @apply text-lg font-semibold text-gray-800 leading-tight m-0;
+  }
+
+  .page-header-subtitle {
+    @apply text-gray-400 text-sm truncate;
+  }
+
+  .page-header-desc {
+    @apply text-gray-400 text-xs mt-0.5 mb-0 leading-snug;
+  }
+
+  .page-header-extra {
+    @apply flex items-center gap-2 shrink-0;
   }
 
   .card-panel {
@@ -32,7 +52,19 @@ body {
   }
 
   .upload-dragger {
-    @apply border-2 border-dashed border-gray-200 rounded-xl p-6 text-center transition-all duration-200;
+    @apply border-2 border-dashed border-gray-200 rounded-xl p-4 text-center transition-all duration-200;
+  }
+
+  .upload-dragger-compact {
+    @apply p-2;
+  }
+
+  .upload-dragger-mini {
+    @apply p-1.5 rounded-lg;
+  }
+
+  .upload-dragger-mini .ant-upload-drag {
+    @apply !py-2 !px-1;
   }
 
   .upload-dragger:hover,
@@ -49,6 +81,44 @@ body {
   background: transparent !important;
 }
 
+/* 折叠子菜单与侧栏保持同一蓝色，不使用 Ant Design 默认深色块 */
+.app-sidebar-menu.ant-menu-dark .ant-menu-sub.ant-menu-inline,
+.app-sidebar-menu.ant-menu-dark .ant-menu-submenu .ant-menu-sub {
+  background: transparent !important;
+}
+
+.app-sidebar-menu.ant-menu-dark .ant-menu-submenu-title {
+  background: transparent !important;
+}
+
+.app-sidebar-menu.ant-menu-dark .ant-menu-submenu-title:hover,
+.app-sidebar-menu.ant-menu-dark .ant-menu-item:not(.ant-menu-item-selected):hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.app-sidebar-menu.ant-menu-dark .ant-menu-item-selected {
+  background: rgba(255, 255, 255, 0.18) !important;
+  border-right: 3px solid #fff;
+  font-weight: 600;
+}
+
+.app-sidebar-menu.ant-menu-dark .ant-menu-item-selected .ant-menu-item-icon,
+.app-sidebar-menu.ant-menu-dark .ant-menu-item-selected .anticon {
+  color: #fff;
+}
+
+.app-sidebar-menu.ant-menu-dark .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  color: #fff;
+  font-weight: 600;
+}
+
+.app-sider .app-sidebar-menu.ant-menu-dark {
+  --ant-menu-dark-item-bg: transparent;
+  --ant-menu-dark-submenu-bg: transparent;
+  --ant-menu-dark-item-hover-bg: rgba(255, 255, 255, 0.08);
+  --ant-menu-dark-item-active-bg: rgba(255, 255, 255, 0.18);
+}
+
 .cost-value-animate {
   animation: costPulse 0.3s ease-out;
 }
@@ -57,4 +127,59 @@ body {
   0% { transform: scale(1); }
   50% { transform: scale(1.02); color: #2563eb; }
   100% { transform: scale(1); }
+}
+
+.table-col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+  z-index: 2;
+}
+
+.table-col-resize-handle:hover,
+.table-col-resize-handle.is-resizing {
+  background: rgba(37, 99, 235, 0.12);
+}
+
+body.table-col-resizing {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+body.table-col-resizing * {
+  cursor: col-resize !important;
+}
+
+.quotation-list-table .ant-table-thead > tr > th,
+.quotation-list-table .ant-table-tbody > tr > td {
+  text-align: center !important;
+}
+
+.quotation-list-table .ant-table-thead > tr > th .table-col-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding-right: 8px;
+  box-sizing: border-box;
+}
+
+.quotation-list-table .ant-table-cell-ellipsis {
+  text-align: center !important;
+}
+
+.quotation-list-table .quotation-list-actions {
+  display: inline-flex;
+  justify-content: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.quotation-list-table .quotation-list-actions .ant-btn {
+  padding-inline: 4px;
 }

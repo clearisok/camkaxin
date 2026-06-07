@@ -1,14 +1,16 @@
 export interface Agent {
   id: number;
   name: string;
+  brand_id?: number;
+  brand_name_ref?: string;
   status: string;
+  default_wastage?: number;
 }
 
 export interface Brand {
   id: number;
   name: string;
-  agent_id?: number;
-  agent_name_ref?: string;
+  agents?: { id: number; name: string; default_wastage?: number; status?: string }[];
   status: string;
   use_count?: number;
   last_used_at?: string;
@@ -29,6 +31,7 @@ export interface Fabric {
   unit_price?: number;
   amount?: number;
   reference_price?: number;
+  default_wastage?: number;
   use_count?: number;
 }
 
@@ -36,6 +39,7 @@ export interface Accessory {
   id?: number;
   accessory_id?: number;
   name: string;
+  specification?: string;
   consumption?: number;
   wastage?: number;
   unit_price?: number;
@@ -87,14 +91,28 @@ export interface Quotation {
   currency: 'RMB' | 'USD';
   exchange_rate: number;
   quote_date?: string;
-  valid_until?: string;
+  fabric_delivery_date?: string;
+  garment_delivery_date?: string;
+  target_labor_price?: number;
+  target_garment_price?: number;
+  confirmed_labor_price?: number;
+  confirmed_garment_price?: number;
   profit_margin: number;
+  style_image?: string;
   remarks?: string;
   status?: string;
+  fabric_total?: number;
+  accessory_total?: number;
+  labor_rmb?: number;
+  product_codes?: string;
+  total_quantity?: number;
+  list_style_image?: string;
   items?: QuotationItem[];
 }
 
-export function createEmptyItem(): QuotationItem {
+export const UNIT_LABELS: Record<string, string> = { meter: '米', kg: '千克' };
+
+export function createEmptyItem(defaultWastage = 5): QuotationItem {
   return {
     product_code: '',
     version_label: '',
@@ -113,21 +131,23 @@ export function createEmptyItem(): QuotationItem {
   };
 }
 
-export function createEmptyFabric(): Fabric {
+export function createEmptyFabric(defaultWastage = 5): Fabric {
   return {
     name: '',
+    composition: '',
     unit: 'meter',
     piece_length: 0,
-    wastage: 5,
+    wastage: defaultWastage,
     unit_price: 0,
   };
 }
 
-export function createEmptyAccessory(): Accessory {
+export function createEmptyAccessory(defaultWastage = 5): Accessory {
   return {
     name: '',
+    specification: '',
     consumption: 1,
-    wastage: 5,
+    wastage: defaultWastage,
     unit_price: 0,
   };
 }

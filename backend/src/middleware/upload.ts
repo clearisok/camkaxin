@@ -39,26 +39,28 @@ export const upload = multer({
 const IMAGE_MAX_SIZE = 5 * 1024 * 1024; // 5MB
 const VIDEO_MAX_SIZE = 500 * 1024 * 1024;
 
-/** 压缩图片（≤5MB 时自动压缩优化） */
+/** 超过 5MB 时才压缩；未超出则保持原图 */
 export async function compressImage(filePath: string): Promise<string> {
   const stat = fs.statSync(filePath);
   const ext = path.extname(filePath).toLowerCase();
 
-  if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
+  if (!['.jpg', '.jpeg', '.png', '.webp', '.bmp'].includes(ext)) {
     return filePath;
   }
 
   if (stat.size <= IMAGE_MAX_SIZE) {
-    const outputPath = filePath.replace(ext, `_compressed${ext === '.png' ? '.jpg' : ext}`);
-    await sharp(filePath)
-      .resize(1920, 1920, { fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 85, progressive: true })
-      .toFile(outputPath);
+    return filePath;
+  }
 
-    if (fs.existsSync(outputPath)) {
-      fs.unlinkSync(filePath);
-      return outputPath;
-    }
+  const outputPath = filePath.replace(ext, `_compressed${ext === '.png' ? '.jpg' : ext}`);
+  await sharp(filePath)
+    .resize(1920, 1920, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 85, progressive: true })
+    .toFile(outputPath);
+
+  if (fs.existsSync(outputPath)) {
+    fs.unlinkSync(filePath);
+    return outputPath;
   }
 
   return filePath;

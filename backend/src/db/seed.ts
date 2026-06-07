@@ -9,28 +9,37 @@ async function seed() {
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
   );
 
-  // 业务员
-  const agents = await query<{ id: number }>(
-    `INSERT INTO agents (name) VALUES
-      ('张三'), ('李四'), ('王五')
-     ON CONFLICT DO NOTHING
-     RETURNING id`
+  // 品牌
+  const brandRows = await query<{ id: number; name: string }>(
+    `INSERT INTO brands (name) VALUES
+      ('ZARA'), ('H&M'), ('UNIQLO'), ('GAP'), ('Mango')
+     ON CONFLICT (name) DO NOTHING
+     RETURNING id, name`
   );
 
-  let agentIds = agents.rows.map((r) => r.id);
-  if (agentIds.length === 0) {
-    const existing = await query<{ id: number }>('SELECT id FROM agents ORDER BY id');
-    agentIds = existing.rows.map((r) => r.id);
+  let brandList = brandRows.rows;
+  if (brandList.length === 0) {
+    const existing = await query<{ id: number; name: string }>('SELECT id, name FROM brands ORDER BY id');
+    brandList = existing.rows;
   }
 
-  // 品牌
-  if (agentIds.length >= 3) {
+  const brandId = (name: string) => brandList.find((b) => b.name === name)?.id;
+
+  // 业务员（每人仅归属一个品牌；ZARA 下两名业务员）
+  const zaraId = brandId('ZARA');
+  const hmId = brandId('H&M');
+  const uniqloId = brandId('UNIQLO');
+
+  if (zaraId && hmId && uniqloId) {
     await query(
-      `INSERT INTO brands (name, agent_id) VALUES
-        ('ZARA', $1), ('H&M', $2), ('UNIQLO', $3), ('GAP', $1), ('Mango', $2)
-       ON CONFLICT (name) DO NOTHING`,
-      [agentIds[0], agentIds[1], agentIds[2]]
+      `INSERT INTO agents (name, brand_id) VALUES
+        ('张三', $1), ('李四', $1), ('王五', $2)
+       ON CONFLICT DO NOTHING`,
+      [zaraId, hmId]
     );
+    // 若 agents 已存在则更新归属
+    await query(`UPDATE agents SET brand_id = $1 WHERE name IN ('张三', '李四')`, [zaraId]);
+    await query(`UPDATE agents SET brand_id = $1 WHERE name = '王五'`, [hmId]);
   }
 
   // 面料库

@@ -1,13 +1,15 @@
 import { useState, useMemo } from 'react';
 import {
-  Input, InputNumber, Select, Button, Table, Collapse, Space, Modal, Tag, Tooltip,
+  Input, InputNumber, Select, Button, Table, Collapse, Space, Modal, Tag, Spin, AutoComplete,
 } from 'antd';
 import { PlusOutlined, DeleteOutlined, BranchesOutlined, LineChartOutlined } from '@ant-design/icons';
 import type { QuotationItem, Fabric, Accessory, QuantityTier } from '@/types';
-import { createEmptyFabric, createEmptyAccessory } from '@/types';
-import { calcItemCost, calcGrossWidth, calcFabricConsumption, calcAccessoryAmount } from '@/utils/calculation';
+import { createEmptyFabric, createEmptyAccessory, UNIT_LABELS } from '@/types';
+import { calcItemCost, calcGrossWidth, calcNetWidth, calcFabricConsumption, calcAccessoryAmount } from '@/utils/calculation';
+import { toNum } from '@/utils/normalize';
 import CostSummary from '@/components/CostSummary';
 import FileUpload from '@/components/FileUpload';
+import AttachmentPreviewList from '@/components/AttachmentPreviewList';
 import { FieldPermission } from '@/components/FieldPermission';
 
 interface ItemEditorProps {
@@ -18,6 +20,8 @@ interface ItemEditorProps {
   profitMargin: number;
   fabricOptions: Array<{ value: number; label: string; data: Fabric; use_count?: number }>;
   accessoryOptions: Array<{ value: number; label: string; data: Accessory; use_count?: number }>;
+  defaultWastage?: number;
+  optionsReady?: boolean;
   onChange: (item: QuotationItem) => void;
   onRemove: () => void;
   readOnly?: boolean;
@@ -25,10 +29,21 @@ interface ItemEditorProps {
 
 export default function ItemEditor({
   item, index, exchangeRate, currency, profitMargin,
-  fabricOptions, accessoryOptions, onChange, onRemove, readOnly,
+  fabricOptions, accessoryOptions, defaultWastage = 5, optionsReady = true,
+  onChange, onRemove, readOnly,
 }: ItemEditorProps) {
   const [tierModal, setTierModal] = useState(false);
   const [tiers, setTiers] = useState<QuantityTier[]>(item.quantity_tiers || []);
+
+  const toFabricCalcInput = (r: Fabric) => ({
+    pieceLength: r.piece_length || 0,
+    wastage: r.wastage ?? 5,
+    unit: (r.unit || 'meter') as 'meter' | 'kg',
+    netWidth: r.net_width || 0,
+    grossWidth: r.gross_width ?? calcGrossWidth(r.net_width || 0),
+    weight: r.weight || 0,
+    unitPrice: r.unit_price || 0,
+  });
 
   const cost = useMemo(() => {
     return calcItemCost(
@@ -36,14 +51,7 @@ export default function ItemEditor({
         laborCostUsd: item.labor_cost_usd || 0,
         otherCostRmb: item.other_cost_rmb || 0,
         shippingRmb: item.shipping_rmb ?? 1,
-        fabrics: (item.fabrics || []).map((f) => ({
-          pieceLength: f.piece_length || 0,
-          wastage: f.wastage ?? 5,
-          unit: f.unit || 'meter',
-          netWidth: f.net_width || 0,
-          weight: f.weight || 0,
-          unitPrice: f.unit_price || 0,
-        })),
+        fabrics: (item.fabrics || []).map((f) => toFabricCalcInput(f)),
         accessories: (item.accessories || []).map((a) => ({
           consumption: a.consumption ?? 1,
           wastage: a.wastage ?? 5,
@@ -58,12 +66,27 @@ export default function ItemEditor({
 
   const update = (patch: Partial<QuotationItem>) => onChange({ ...item, ...patch });
 
-  const addFabric = () => update({ fabrics: [...(item.fabrics || []), createEmptyFabric()] });
+  const itemAttachments = useMemo(
+    () => [
+      ...(item.pattern_files || []),
+      ...(item.layout_files || []),
+      ...(item.sample_images || []),
+    ],
+    [item.pattern_files, item.layout_files, item.sample_images]
+  );
+
+  const setItemAttachments = (paths: string[]) => {
+    update({ pattern_files: paths, layout_files: [], sample_images: [] });
+  };
+
+  const addFabric = () => update({ fabrics: [...(item.fabrics || []), createEmptyFabric(defaultWastage)] });
   const updateFabric = (idx: number, patch: Partial<Fabric>) => {
     const fabrics = [...(item.fabrics || [])];
     fabrics[idx] = { ...fabrics[idx], ...patch };
-    if (patch.net_width !== undefined) {
-      fabrics[idx].gross_width = calcGrossWidth(patch.net_width);
+    if (patch.gross_width !== undefined && patch.net_width === undefined) {
+      fabrics[idx].net_width = calcNetWidth(Number(patch.gross_width));
+    } else if (patch.net_width !== undefined && patch.gross_width === undefined) {
+      fabrics[idx].gross_width = calcGrossWidth(Number(patch.net_width));
     }
     update({ fabrics });
   };
@@ -72,6 +95,7 @@ export default function ItemEditor({
   const selectFabric = (idx: number, fabricId: number) => {
     const opt = fabricOptions.find((o) => o.value === fabricId);
     if (opt) {
+      const fabricWastage = opt.data.default_wastage ?? defaultWastage;
       updateFabric(idx, {
         fabric_id: fabricId,
         name: opt.data.name,
@@ -81,11 +105,35 @@ export default function ItemEditor({
         gross_width: calcGrossWidth(opt.data.net_width || 0),
         unit: opt.data.unit,
         unit_price: opt.data.reference_price || opt.data.unit_price,
+        wastage: fabricWastage,
       });
     }
   };
 
-  const addAccessory = () => update({ accessories: [...(item.accessories || []), createEmptyAccessory()] });
+  /** 输入面料名称后回车：精确/唯一匹配则选库，否则保存为手动输入 */
+  const commitFabricInput = (idx: number, rawName: string) => {
+    const trimmed = rawName.trim();
+    if (!trimmed) return;
+    const lower = trimmed.toLowerCase();
+    const exact = fabricOptions.find((o) => o.label.toLowerCase() === lower);
+    if (exact) {
+      selectFabric(idx, exact.value);
+      return;
+    }
+    const partial = fabricOptions.filter((o) => o.label.toLowerCase().includes(lower));
+    if (partial.length === 1) {
+      selectFabric(idx, partial[0].value);
+      return;
+    }
+    updateFabric(idx, { name: trimmed, fabric_id: undefined });
+  };
+
+  const fabricAutoCompleteOptions = fabricOptions.map((o) => ({
+    value: String(o.value),
+    label: o.data.weight != null ? `${o.label} (${o.data.weight}g/m²)` : o.label,
+  }));
+
+  const addAccessory = () => update({ accessories: [...(item.accessories || []), createEmptyAccessory(defaultWastage)] });
   const updateAccessory = (idx: number, patch: Partial<Accessory>) => {
     const accessories = [...(item.accessories || [])];
     accessories[idx] = { ...accessories[idx], ...patch };
@@ -99,51 +147,136 @@ export default function ItemEditor({
       updateAccessory(idx, {
         accessory_id: accId,
         name: opt.data.name,
+        specification: opt.data.specification,
         unit_price: opt.data.reference_price || opt.data.unit_price,
       });
     }
   };
 
+  const fabricSelectNotFound = optionsReady ? '暂无数据' : <Spin size="small" />;
+
   const fabricColumns = [
     {
       title: '面料', dataIndex: 'name', width: 180,
-      render: (_: unknown, __: Fabric, idx: number) => readOnly ? item.fabrics?.[idx]?.name : (
-        <Select
-          showSearch
-          placeholder="选择或输入"
+      render: (_: unknown, r: Fabric, idx: number) => readOnly ? item.fabrics?.[idx]?.name : (
+        <AutoComplete
           className="w-full"
-          value={item.fabrics?.[idx]?.fabric_id}
-          onChange={(v) => selectFabric(idx, v)}
-          options={fabricOptions.map((o) => ({
-            value: o.value,
-            label: (
-              <span>{o.label}{o.use_count ? <Tag className="ml-1" color="blue">{o.use_count}</Tag> : null}</span>
-            ),
-          }))}
+          value={r.name || ''}
+          placeholder="输入搜索，回车确认"
+          options={optionsReady ? fabricAutoCompleteOptions : []}
+          defaultActiveFirstOption
+          onSelect={(value) => selectFabric(idx, Number(value))}
+          onChange={(text) => {
+            const linked = fabricOptions.find((o) => o.value === r.fabric_id);
+            if (linked && linked.label !== text) {
+              updateFabric(idx, { name: text, fabric_id: undefined });
+            } else {
+              updateFabric(idx, { name: text });
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              e.stopPropagation();
+              commitFabricInput(idx, r.name || '');
+            }
+          }}
           filterOption={(input, option) => {
-            const opt = fabricOptions.find((o) => o.value === option?.value);
+            const opt = fabricOptions.find((o) => String(o.value) === option?.value);
             return opt?.label.toLowerCase().includes(input.toLowerCase()) ?? false;
           }}
+          notFoundContent={fabricSelectNotFound}
         />
       ),
     },
-    { title: '段长', dataIndex: 'piece_length', width: 90, render: (_: unknown, r: Fabric, idx: number) => readOnly ? r.piece_length : (
-      <InputNumber size="small" value={r.piece_length} onChange={(v) => updateFabric(idx, { piece_length: v || 0 })} min={0} step={0.01} className="w-full" />
-    )},
-    { title: '损耗%', dataIndex: 'wastage', width: 80, render: (_: unknown, r: Fabric, idx: number) => readOnly ? r.wastage : (
-      <InputNumber size="small" value={r.wastage} onChange={(v) => updateFabric(idx, { wastage: v ?? 5 })} min={0} max={100} className="w-full" />
-    )},
-    { title: '单耗', width: 80, render: (_: unknown, r: Fabric) => calcFabricConsumption({
-      pieceLength: r.piece_length || 0, wastage: r.wastage ?? 5, unit: r.unit || 'meter',
-      netWidth: r.net_width || 0, weight: r.weight || 0, unitPrice: 0,
-    }).toFixed(2) },
-    { title: '单价', dataIndex: 'unit_price', width: 90, render: (_: unknown, r: Fabric, idx: number) => readOnly ? r.unit_price?.toFixed(2) : (
-      <InputNumber size="small" value={r.unit_price} onChange={(v) => updateFabric(idx, { unit_price: v || 0 })} min={0} step={0.01} className="w-full" />
-    )},
-    { title: '金额', width: 80, render: (_: unknown, r: Fabric) => {
-      const c = calcFabricConsumption({ pieceLength: r.piece_length || 0, wastage: r.wastage ?? 5, unit: r.unit || 'meter', netWidth: r.net_width || 0, weight: r.weight || 0, unitPrice: r.unit_price || 0 });
-      return (c * (r.unit_price || 0)).toFixed(2);
-    }},
+    {
+      title: '成分', dataIndex: 'composition', width: 120,
+      render: (_: unknown, r: Fabric, idx: number) => readOnly ? r.composition : (
+        <Input size="small" value={r.composition} onChange={(e) => updateFabric(idx, { composition: e.target.value })} />
+      ),
+    },
+    {
+      title: '克重(g/m²)', dataIndex: 'weight', width: 100,
+      render: (_: unknown, r: Fabric, idx: number) => readOnly ? (r.weight != null ? r.weight : '-') : (
+        <InputNumber
+          size="small"
+          className="w-full"
+          value={r.weight}
+          min={0}
+          step={1}
+          placeholder="克重"
+          onChange={(v) => updateFabric(idx, { weight: v ?? 0 })}
+        />
+      ),
+    },
+    {
+      title: '净门幅(厘米)', dataIndex: 'net_width', width: 110,
+      render: (_: unknown, r: Fabric, idx: number) => readOnly ? (r.net_width ?? '-') : (
+        <InputNumber
+          size="small"
+          className="w-full"
+          value={r.net_width}
+          min={0}
+          step={0.1}
+          onChange={(v) => updateFabric(idx, { net_width: v ?? 0 })}
+        />
+      ),
+    },
+    {
+      title: '毛门幅(厘米)', dataIndex: 'gross_width', width: 110,
+      render: (_: unknown, r: Fabric, idx: number) => readOnly ? (r.gross_width ?? '-') : (
+        <InputNumber
+          size="small"
+          className="w-full"
+          value={r.gross_width}
+          min={0}
+          step={0.1}
+          onChange={(v) => updateFabric(idx, { gross_width: v ?? 0 })}
+        />
+      ),
+    },
+    {
+      title: '单位', dataIndex: 'unit', width: 90,
+      render: (_: unknown, r: Fabric, idx: number) => readOnly ? (UNIT_LABELS[r.unit] || r.unit) : (
+        <Select
+          size="small"
+          className="w-full"
+          value={r.unit || 'meter'}
+          onChange={(v) => updateFabric(idx, { unit: v })}
+          options={[{ value: 'meter', label: '米' }, { value: 'kg', label: '千克' }]}
+        />
+      ),
+    },
+    {
+      title: '段长(厘米)', dataIndex: 'piece_length', width: 100,
+      render: (_: unknown, r: Fabric, idx: number) => readOnly ? r.piece_length : (
+        <InputNumber size="small" value={r.piece_length} onChange={(v) => updateFabric(idx, { piece_length: v || 0 })} min={0} step={0.01} className="w-full" addonAfter="cm" />
+      ),
+    },
+    {
+      title: '损耗%', dataIndex: 'wastage', width: 80,
+      render: (_: unknown, r: Fabric, idx: number) => readOnly ? r.wastage : (
+        <InputNumber size="small" value={r.wastage} onChange={(v) => updateFabric(idx, { wastage: v ?? 5 })} min={0} max={100} className="w-full" />
+      ),
+    },
+    {
+      title: '单耗', width: 80,
+      render: (_: unknown, r: Fabric) => calcFabricConsumption(toFabricCalcInput(r)).toFixed(2),
+    },
+    {
+      title: '单价', dataIndex: 'unit_price', width: 90,
+      render: (_: unknown, r: Fabric, idx: number) => readOnly ? toNum(r.unit_price).toFixed(2) : (
+        <InputNumber size="small" value={r.unit_price} onChange={(v) => updateFabric(idx, { unit_price: v || 0 })} min={0} step={0.01} className="w-full" />
+      ),
+    },
+    {
+      title: '金额', width: 80,
+      render: (_: unknown, r: Fabric) => {
+        const input = toFabricCalcInput(r);
+        const c = calcFabricConsumption(input);
+        return (c * (r.unit_price || 0)).toFixed(2);
+      },
+    },
     ...(!readOnly ? [{ title: '', width: 50, render: (_: unknown, __: Fabric, idx: number) => (
       <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeFabric(idx)} />
     )}] : []),
@@ -151,23 +284,54 @@ export default function ItemEditor({
 
   const accessoryColumns = [
     {
-      title: '辅料', dataIndex: 'name', width: 180,
+      title: '辅料', dataIndex: 'name', width: 160,
       render: (_: unknown, __: Accessory, idx: number) => readOnly ? item.accessories?.[idx]?.name : (
-        <Select showSearch placeholder="选择辅料" className="w-full" value={item.accessories?.[idx]?.accessory_id}
+        <Select
+          showSearch
+          placeholder="选择辅料"
+          className="w-full"
+          value={item.accessories?.[idx]?.accessory_id}
           onChange={(v) => selectAccessory(idx, v)}
-          options={accessoryOptions.map((o) => ({ value: o.value, label: o.label }))} />
+          loading={!optionsReady}
+          notFoundContent={fabricSelectNotFound}
+          options={accessoryOptions.map((o) => ({ value: o.value, label: o.label }))}
+          filterOption={(input, option) => {
+            const opt = accessoryOptions.find((o) => o.value === option?.value);
+            return opt?.label.toLowerCase().includes(input.toLowerCase()) ?? false;
+          }}
+        />
       ),
     },
-    { title: '单耗', dataIndex: 'consumption', width: 80, render: (_: unknown, r: Accessory, idx: number) => readOnly ? r.consumption : (
-      <InputNumber size="small" value={r.consumption} onChange={(v) => updateAccessory(idx, { consumption: v ?? 1 })} min={0} step={0.01} className="w-full" />
-    )},
-    { title: '损耗%', dataIndex: 'wastage', width: 80, render: (_: unknown, r: Accessory, idx: number) => readOnly ? r.wastage : (
-      <InputNumber size="small" value={r.wastage} onChange={(v) => updateAccessory(idx, { wastage: v ?? 5 })} min={0} max={100} className="w-full" />
-    )},
-    { title: '单价', dataIndex: 'unit_price', width: 90, render: (_: unknown, r: Accessory, idx: number) => readOnly ? r.unit_price?.toFixed(2) : (
-      <InputNumber size="small" value={r.unit_price} onChange={(v) => updateAccessory(idx, { unit_price: v || 0 })} min={0} step={0.01} className="w-full" />
-    )},
-    { title: '金额', width: 80, render: (_: unknown, r: Accessory) => calcAccessoryAmount({ consumption: r.consumption ?? 1, wastage: r.wastage ?? 5, unitPrice: r.unit_price || 0 }).toFixed(2) },
+    {
+      title: '规格', dataIndex: 'specification', width: 140,
+      render: (_: unknown, r: Accessory, idx: number) => readOnly ? r.specification : (
+        <Input size="small" value={r.specification} onChange={(e) => updateAccessory(idx, { specification: e.target.value })} placeholder="如：3#拉链，铜色" />
+      ),
+    },
+    {
+      title: '单耗', dataIndex: 'consumption', width: 80,
+      render: (_: unknown, r: Accessory, idx: number) => readOnly ? r.consumption : (
+        <InputNumber size="small" value={r.consumption} onChange={(v) => updateAccessory(idx, { consumption: v ?? 1 })} min={0} step={0.01} className="w-full" />
+      ),
+    },
+    {
+      title: '损耗%', dataIndex: 'wastage', width: 80,
+      render: (_: unknown, r: Accessory, idx: number) => readOnly ? r.wastage : (
+        <InputNumber size="small" value={r.wastage} onChange={(v) => updateAccessory(idx, { wastage: v ?? 5 })} min={0} max={100} className="w-full" />
+      ),
+    },
+    {
+      title: '单价', dataIndex: 'unit_price', width: 90,
+      render: (_: unknown, r: Accessory, idx: number) => readOnly ? toNum(r.unit_price).toFixed(2) : (
+        <InputNumber size="small" value={r.unit_price} onChange={(v) => updateAccessory(idx, { unit_price: v || 0 })} min={0} step={0.01} className="w-full" />
+      ),
+    },
+    {
+      title: '金额', width: 80,
+      render: (_: unknown, r: Accessory) => calcAccessoryAmount({
+        consumption: r.consumption ?? 1, wastage: r.wastage ?? 5, unitPrice: r.unit_price || 0,
+      }).toFixed(2),
+    },
     ...(!readOnly ? [{ title: '', width: 50, render: (_: unknown, __: Accessory, idx: number) => (
       <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeAccessory(idx)} />
     )}] : []),
@@ -223,15 +387,20 @@ export default function ItemEditor({
                 <FieldPermission fieldCode="item.labor_cost_usd">
                   <div>
                     <label className="text-sm text-gray-500 mb-1 block">工价 (USD)</label>
-                    {readOnly ? <span>${item.labor_cost_usd?.toFixed(2)}</span> : (
+                    {readOnly ? <span>${toNum(item.labor_cost_usd).toFixed(2)}</span> : (
                       <InputNumber className="w-full" value={item.labor_cost_usd} onChange={(v) => update({ labor_cost_usd: v || 0 })} min={0} step={0.01} prefix="$" />
+                    )}
+                    {!readOnly && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        折算 RMB: ¥{(toNum(item.labor_cost_usd) * exchangeRate * 1.13).toFixed(2)}
+                      </p>
                     )}
                   </div>
                 </FieldPermission>
                 <FieldPermission fieldCode="item.shipping_rmb">
                   <div>
                     <label className="text-sm text-gray-500 mb-1 block">运费 (RMB)</label>
-                    {readOnly ? <span>¥{item.shipping_rmb?.toFixed(2)}</span> : (
+                    {readOnly ? <span>¥{toNum(item.shipping_rmb).toFixed(2)}</span> : (
                       <InputNumber className="w-full" value={item.shipping_rmb} onChange={(v) => update({ shipping_rmb: v ?? 1 })} min={0} step={0.01} prefix="¥" />
                     )}
                   </div>
@@ -264,7 +433,7 @@ export default function ItemEditor({
                   <span className="text-sm font-medium text-gray-700">面料明细</span>
                   {!readOnly && <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addFabric}>添加面料</Button>}
                 </div>
-                <Table size="small" pagination={false} dataSource={item.fabrics || []} columns={fabricColumns} rowKey={(_, i) => `f-${i}`} scroll={{ x: 700 }} />
+                <Table size="small" pagination={false} dataSource={item.fabrics || []} columns={fabricColumns} rowKey={(_, i) => `f-${i}`} scroll={{ x: 1300 }} />
               </div>
 
               <div>
@@ -272,19 +441,26 @@ export default function ItemEditor({
                   <span className="text-sm font-medium text-gray-700">辅料明细</span>
                   {!readOnly && <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addAccessory}>添加辅料</Button>}
                 </div>
-                <Table size="small" pagination={false} dataSource={item.accessories || []} columns={accessoryColumns} rowKey={(_, i) => `a-${i}`} scroll={{ x: 600 }} />
+                <Table size="small" pagination={false} dataSource={item.accessories || []} columns={accessoryColumns} rowKey={(_, i) => `a-${i}`} scroll={{ x: 800 }} />
               </div>
 
-              {!readOnly && (
-                <div>
-                  <label className="text-sm text-gray-500 mb-2 block">款式图 / 附件</label>
+              <div>
+                <label className="text-sm text-gray-500 mb-2 block">报价资料/排料图等附件</label>
+                {readOnly ? (
+                  itemAttachments.length > 0 ? (
+                    <AttachmentPreviewList paths={itemAttachments} />
+                  ) : (
+                    <span className="text-gray-400">—</span>
+                  )
+                ) : (
                   <FileUpload
-                    value={item.style_image ? [item.style_image] : []}
-                    onChange={(paths) => update({ style_image: paths[0] })}
-                    maxCount={1}
+                    value={itemAttachments}
+                    onChange={setItemAttachments}
+                    maxCount={10}
+                    hint="点击、拖拽或粘贴上传报价资料、排料图等附件"
                   />
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             <div>

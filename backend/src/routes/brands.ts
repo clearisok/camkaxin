@@ -6,12 +6,36 @@ import { trackBrandUsage } from '../services/sequenceService.js';
 
 const router = Router();
 
+const BRAND_WITH_AGENTS_SQL = `
+  SELECT b.*,
+    COALESCE(
+      json_agg(
+        json_build_object(
+          'id', a.id,
+          'name', a.name,
+          'default_wastage', a.default_wastage,
+          'status', a.status
+        ) ORDER BY a.name
+      ) FILTER (WHERE a.id IS NOT NULL),
+      '[]'
+    ) AS agents
+  FROM brands b
+  LEFT JOIN agents a ON a.brand_id = b.id
+`;
+
+async function getBrandById(id: number) {
+  const result = await query(
+    `${BRAND_WITH_AGENTS_SQL} WHERE b.id = $1 GROUP BY b.id`,
+    [id]
+  );
+  return result.rows[0] as Record<string, unknown> | undefined;
+}
+
 router.get('/', async (_req: Request, res: Response) => {
   try {
     const result = await query(`
-      SELECT b.*, a.name as agent_name_ref
-      FROM brands b
-      LEFT JOIN agents a ON b.agent_id = a.id
+      ${BRAND_WITH_AGENTS_SQL}
+      GROUP BY b.id
       ORDER BY b.last_used_at DESC NULLS LAST, b.use_count DESC, b.name ASC
     `);
     res.json({
@@ -25,13 +49,9 @@ router.get('/', async (_req: Request, res: Response) => {
 
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const result = await query(
-      `SELECT b.*, a.name as agent_name_ref FROM brands b
-       LEFT JOIN agents a ON b.agent_id = a.id WHERE b.id = $1`,
-      [req.params.id]
-    );
-    if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
-    res.json(withFieldMeta(result.rows[0] as Record<string, unknown>, BRAND_FIELDS));
+    const row = await getBrandById(parseId(req.params.id));
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    res.json(withFieldMeta(row, BRAND_FIELDS));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -51,12 +71,14 @@ router.get('/:id/default-accessories', async (req: Request, res: Response) => {
 
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { name, agent_id, status = 'active' } = req.body;
+    const { name, status = 'active' } = req.body;
     const result = await query(
-      'INSERT INTO brands (name, agent_id, status) VALUES ($1, $2, $3) RETURNING *',
-      [name, agent_id, status]
+      'INSERT INTO brands (name, status) VALUES ($1, $2) RETURNING *',
+      [name, status]
     );
-    res.status(201).json(withFieldMeta(result.rows[0] as Record<string, unknown>, BRAND_FIELDS));
+    const brandId = (result.rows[0] as { id: number }).id;
+    const row = await getBrandById(brandId);
+    res.status(201).json(withFieldMeta(row as Record<string, unknown>, BRAND_FIELDS));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -64,14 +86,16 @@ router.post('/', async (req: Request, res: Response) => {
 
 router.put('/:id', async (req: Request, res: Response) => {
   try {
-    const { name, agent_id, status } = req.body;
+    const brandId = parseId(req.params.id);
+    const { name, status } = req.body;
     const result = await query(
-      `UPDATE brands SET name = COALESCE($1, name), agent_id = COALESCE($2, agent_id),
-       status = COALESCE($3, status), updated_at = NOW() WHERE id = $4 RETURNING *`,
-      [name, agent_id, status, req.params.id]
+      `UPDATE brands SET name = COALESCE($1, name),
+       status = COALESCE($2, status), updated_at = NOW() WHERE id = $3 RETURNING *`,
+      [name, status, brandId]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
-    res.json(withFieldMeta(result.rows[0] as Record<string, unknown>, BRAND_FIELDS));
+    const row = await getBrandById(brandId);
+    res.json(withFieldMeta(row as Record<string, unknown>, BRAND_FIELDS));
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

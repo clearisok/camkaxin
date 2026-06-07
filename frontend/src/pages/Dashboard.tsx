@@ -3,6 +3,7 @@ import { FileTextOutlined, PlusOutlined, TagOutlined, SkinOutlined } from '@ant-
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { getQuotations, getBrands, getFabrics } from '@/api';
+import PageHeader from '@/components/PageHeader';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -26,15 +27,15 @@ export default function Dashboard() {
 
   return (
     <div className="page-container">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">工作台</h1>
-          <p className="text-gray-500 mt-1">欢迎使用柬凯报价管理系统</p>
-        </div>
-        <Button type="primary" size="large" icon={<PlusOutlined />} onClick={() => navigate('/quotations/new')}>
-          新建报价单
-        </Button>
-      </div>
+      <PageHeader
+        title="工作台"
+        description="欢迎使用柬凯报价管理系统"
+        extra={(
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/quotations/new')}>
+            新建报价单
+          </Button>
+        )}
+      />
 
       <Row gutter={[16, 16]} className="mb-6">
         <Col xs={24} sm={12} lg={6}>

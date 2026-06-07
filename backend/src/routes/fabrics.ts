@@ -37,11 +37,11 @@ router.get('/all', async (_req: Request, res: Response) => {
 
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { name, composition, weight, net_width, unit = 'meter', reference_price, status = 'active' } = req.body;
+    const { name, composition, weight, net_width, unit = 'meter', reference_price, status = 'active', default_wastage = 5 } = req.body;
     const result = await query(
-      `INSERT INTO fabric_library (name, composition, weight, net_width, unit, reference_price, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [name, composition, weight, net_width, unit, reference_price, status]
+      `INSERT INTO fabric_library (name, composition, weight, net_width, unit, reference_price, status, default_wastage)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [name, composition, weight, net_width, unit, reference_price, status, default_wastage]
     );
     const row = result.rows[0] as Record<string, unknown>;
     row.gross_width = calcGrossWidth(Number(net_width || 0));
@@ -53,15 +53,15 @@ router.post('/', async (req: Request, res: Response) => {
 
 router.put('/:id', async (req: Request, res: Response) => {
   try {
-    const { name, composition, weight, net_width, unit, reference_price, status } = req.body;
+    const { name, composition, weight, net_width, unit, reference_price, status, default_wastage } = req.body;
     const result = await query(
       `UPDATE fabric_library SET
         name = COALESCE($1, name), composition = COALESCE($2, composition),
         weight = COALESCE($3, weight), net_width = COALESCE($4, net_width),
         unit = COALESCE($5, unit), reference_price = COALESCE($6, reference_price),
-        status = COALESCE($7, status), updated_at = NOW()
-       WHERE id = $8 RETURNING *`,
-      [name, composition, weight, net_width, unit, reference_price, status, req.params.id]
+        status = COALESCE($7, status), default_wastage = COALESCE($8, default_wastage), updated_at = NOW()
+       WHERE id = $9 RETURNING *`,
+      [name, composition, weight, net_width, unit, reference_price, status, default_wastage, req.params.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
     res.json(withFieldMeta(result.rows[0] as Record<string, unknown>, FABRIC_FIELDS));

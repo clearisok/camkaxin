@@ -33,10 +33,10 @@ router.get('/all', async (_req: Request, res: Response) => {
 
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { name, reference_price, status = 'active' } = req.body;
+    const { name, reference_price, status = 'active', specification } = req.body;
     const result = await query(
-      'INSERT INTO accessory_library (name, reference_price, status) VALUES ($1, $2, $3) RETURNING *',
-      [name, reference_price, status]
+      'INSERT INTO accessory_library (name, reference_price, status, specification) VALUES ($1, $2, $3, $4) RETURNING *',
+      [name, reference_price, status, specification || null]
     );
     res.status(201).json(withFieldMeta(result.rows[0] as Record<string, unknown>, ACCESSORY_FIELDS));
   } catch (err) {
@@ -46,11 +46,11 @@ router.post('/', async (req: Request, res: Response) => {
 
 router.put('/:id', async (req: Request, res: Response) => {
   try {
-    const { name, reference_price, status } = req.body;
+    const { name, reference_price, status, specification } = req.body;
     const result = await query(
       `UPDATE accessory_library SET name = COALESCE($1, name), reference_price = COALESCE($2, reference_price),
-       status = COALESCE($3, status), updated_at = NOW() WHERE id = $4 RETURNING *`,
-      [name, reference_price, status, req.params.id]
+       status = COALESCE($3, status), specification = COALESCE($4, specification), updated_at = NOW() WHERE id = $5 RETURNING *`,
+      [name, reference_price, status, specification, req.params.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
     res.json(withFieldMeta(result.rows[0] as Record<string, unknown>, ACCESSORY_FIELDS));

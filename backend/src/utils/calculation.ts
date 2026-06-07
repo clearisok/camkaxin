@@ -10,6 +10,7 @@ export interface FabricInput {
   wastage: number;
   unit: FabricUnit;
   netWidth?: number;
+  grossWidth?: number;
   weight?: number;
   unitPrice: number;
 }
@@ -45,20 +46,33 @@ export function calcGrossWidth(netWidth: number): number {
   return netWidth + 5;
 }
 
+/** 净门幅 = 毛门幅 - 5 */
+export function calcNetWidth(grossWidth: number): number {
+  return Math.max(0, grossWidth - 5);
+}
+
+/** 优先使用毛门幅，否则由净门幅推算 */
+export function resolveGrossWidth(fabric: Pick<FabricInput, 'netWidth' | 'grossWidth'>): number {
+  if (fabric.grossWidth != null && fabric.grossWidth >= 0) {
+    return fabric.grossWidth;
+  }
+  return calcGrossWidth(fabric.netWidth ?? 0);
+}
+
 /**
  * 面料单耗计算
- * 单位=米: ROUND(段长 * (1 + 损耗/100), 2)
- * 单位=千克: ROUND(段长 * 毛门幅 / 10000 * 克重 / 1000 * (1 + 损耗/100), 2)
+ * 单位=米: ROUND(段长/100 × (1 + 损耗/100), 2)，单耗单位为米（段长为厘米）
+ * 单位=千克: ROUND(段长 × 毛门幅/10000 × 克重/1000 × (1 + 损耗/100), 2)，单耗单位为千克
  */
 export function calcFabricConsumption(fabric: FabricInput): number {
-  const { pieceLength, wastage, unit, netWidth = 0, weight = 0 } = fabric;
+  const { pieceLength, wastage, unit, weight = 0 } = fabric;
   const wastageFactor = 1 + wastage / 100;
 
   if (unit === 'meter') {
-    return round2(pieceLength * wastageFactor);
+    return round2((pieceLength / 100) * wastageFactor);
   }
 
-  const grossWidth = calcGrossWidth(netWidth);
+  const grossWidth = resolveGrossWidth(fabric);
   return round2(
     pieceLength * (grossWidth / 10000) * (weight / 1000) * wastageFactor
   );
@@ -146,13 +160,6 @@ export function calcQuotationSummary(input: QuotationCalcInput) {
   const totalFinal = round2(itemResults.reduce((s, r) => s + r.finalPrice, 0));
 
   return { items: itemResults, totalSubtotal, totalFinal };
-}
-
-/** 默认有效期：报价日期 + 4 个月 */
-export function calcValidUntil(quoteDate: Date): Date {
-  const result = new Date(quoteDate);
-  result.setMonth(result.getMonth() + 4);
-  return result;
 }
 
 /** 生成报价单号 Q+YYYYMMDD+3位序列 */

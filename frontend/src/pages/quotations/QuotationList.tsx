@@ -1,9 +1,28 @@
-import { useEffect, useState } from 'react';
-import { Table, Button, Input, Select, Tag, Space, message, Popconfirm, Modal, Checkbox } from 'antd';
-import { PlusOutlined, CopyOutlined, EditOutlined, DeleteOutlined, ExportOutlined, EyeOutlined } from '@ant-design/icons';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Table, Button, Input, Select, Space, message, Popconfirm, Modal, Checkbox, Input as AntInput } from 'antd';
+import { PlusOutlined, FileExcelOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { getQuotations, deleteQuotation, copyQuotation, exportExcel, getTemplates } from '@/api';
-import type { Quotation } from '@/types';
+import PageHeader from '@/components/PageHeader';
+import TableColumnSettings from '@/components/TableColumnSettings';
+import ResizableTableHeader from '@/components/ResizableTableHeader';
+import {
+  getQuotations, deleteQuotation, copyQuotation, exportExcel, getTemplates, exportSummary, getExportFilename,
+  getBrands, getAgents,
+} from '@/api';
+import type { Quotation, Brand, Agent } from '@/types';
+import {
+  QUOTATION_LIST_COLUMN_DEFS,
+  loadColumnPreferences,
+  clampColumnWidth,
+  normalizeColumnPreferences,
+  saveColumnPreferences,
+  type ColumnPreferences,
+} from '@/utils/quotationListColumnPrefs';
+import {
+  applyColumnPreferences,
+  buildQuotationListColumns,
+  estimateTableScrollX,
+} from '@/utils/quotationListColumns';
 
 const statusMap: Record<string, { color: string; text: string }> = {
   draft: { color: 'default', text: '草稿' },
@@ -12,6 +31,21 @@ const statusMap: Record<string, { color: string; text: string }> = {
   expired: { color: 'error', text: '已过期' },
 };
 
+function downloadBlob(data: Blob, filename: string) {
+  const url = window.URL.createObjectURL(data);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  window.URL.revokeObjectURL(url);
+}
+
+const TABLE_HEADER_COMPONENTS = { header: { cell: ResizableTableHeader } };
+
+const DEFAULT_WIDTH_BY_KEY = Object.fromEntries(
+  QUOTATION_LIST_COLUMN_DEFS.map((c) => [c.key, c.defaultWidth])
+);
+
 export default function QuotationList() {
   const navigate = useNavigate();
   const [data, setData] = useState<Quotation[]>([]);
@@ -19,15 +53,48 @@ export default function QuotationList() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<string | undefined>();
+  const [brandId, setBrandId] = useState<number | undefined>();
+  const [agentName, setAgentName] = useState<string | undefined>();
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [page, setPage] = useState(1);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
+  const [columnPrefs, setColumnPrefs] = useState<ColumnPreferences>(() => loadColumnPreferences());
   const [exportModal, setExportModal] = useState<{ visible: boolean; id?: number }>({ visible: false });
   const [templates, setTemplates] = useState<Array<{ id: number; name: string }>>([]);
-  const [exportOptions, setExportOptions] = useState({ templateId: undefined as number | undefined, splitByItem: false });
+  const [exportOptions, setExportOptions] = useState({
+    templateId: undefined as number | undefined,
+    splitByItem: false,
+    filename: '',
+  });
 
-  const loadData = async () => {
+  useEffect(() => {
+    Promise.all([getBrands(), getAgents()])
+      .then(([b, a]) => {
+        setBrands(b.data || []);
+        setAgents(a.data || []);
+      })
+      .catch(() => {});
+  }, []);
+
+  const agentOptions = useMemo(() => {
+    const list = brandId
+      ? agents.filter((a) => a.brand_id === brandId)
+      : agents;
+    return list.map((a) => ({ value: a.name, label: a.name }));
+  }, [agents, brandId]);
+
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getQuotations({ search, status, page, pageSize: 20 });
+      const res = await getQuotations({
+        search: search || undefined,
+        status,
+        brand_id: brandId,
+        agent_name: agentName,
+        page,
+        pageSize: 20,
+      });
       setData(res.data || []);
       setTotal(res.total || 0);
     } catch (err) {
@@ -35,9 +102,9 @@ export default function QuotationList() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [search, status, brandId, agentName, page]);
 
-  useEffect(() => { loadData(); }, [page, status]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   const handleCopy = async (id: number) => {
     try {
@@ -62,13 +129,13 @@ export default function QuotationList() {
   const handleExport = async () => {
     if (!exportModal.id) return;
     try {
-      const res = await exportExcel(exportModal.id, exportOptions.templateId, exportOptions.splitByItem);
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `quotation_${exportModal.id}.xlsx`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      const res = await exportExcel(
+        exportModal.id,
+        exportOptions.templateId,
+        exportOptions.splitByItem,
+        exportOptions.filename || undefined
+      );
+      downloadBlob(new Blob([res.data]), exportOptions.filename || `quotation_${exportModal.id}.xlsx`);
       setExportModal({ visible: false });
       message.success('导出成功');
     } catch (err) {
@@ -76,78 +143,169 @@ export default function QuotationList() {
     }
   };
 
+  const handleSummaryExport = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择报价单');
+      return;
+    }
+    try {
+      const res = await exportSummary(selectedRowKeys);
+      const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      downloadBlob(new Blob([res.data]), `报价汇总_${date}.xlsx`);
+      message.success('汇总导出成功');
+    } catch (err) {
+      message.error(String(err));
+    }
+  };
+
   const openExport = async (id: number) => {
     try {
-      const res = await getTemplates();
-      setTemplates(res.data || []);
-    } catch { /* ignore */ }
+      const [tplRes, nameRes] = await Promise.all([getTemplates(), getExportFilename(id)]);
+      setTemplates(tplRes.data || []);
+      setExportOptions({
+        templateId: undefined,
+        splitByItem: false,
+        filename: nameRes.filename || '',
+      });
+    } catch {
+      setExportOptions({ templateId: undefined, splitByItem: false, filename: '' });
+    }
     setExportModal({ visible: true, id });
   };
 
-  const columns = [
-    { title: '报价单号', dataIndex: 'quotation_no', key: 'quotation_no', width: 160 },
-    { title: '品牌', dataIndex: 'brand_name', key: 'brand_name', width: 120 },
-    { title: '业务员', dataIndex: 'agent_name', key: 'agent_name', width: 100 },
-    { title: '报价日期', dataIndex: 'quote_date', key: 'quote_date', width: 120 },
-    { title: '币种', dataIndex: 'currency', key: 'currency', width: 80 },
-    {
-      title: '状态', dataIndex: 'status', key: 'status', width: 100,
-      render: (s: string) => {
-        const info = statusMap[s] || { color: 'default', text: s };
-        return <Tag color={info.color}>{info.text}</Tag>;
-      },
-    },
-    {
-      title: '操作', key: 'action', width: 280, fixed: 'right' as const,
-      render: (_: unknown, record: Quotation) => (
-        <Space size="small">
-          <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/quotations/${record.id}`)}>查看</Button>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/quotations/${record.id}/edit`)}>编辑</Button>
-          <Button type="link" size="small" icon={<CopyOutlined />} onClick={() => handleCopy(record.id!)}>复制</Button>
-          <Button type="link" size="small" icon={<ExportOutlined />} onClick={() => openExport(record.id!)}>导出</Button>
-          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id!)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
+  const handleSearch = (v: string) => {
+    setSearch(v);
+    setPage(1);
+  };
+
+  const handleColumnResize = useCallback((key: string, width: number) => {
+    setColumnPrefs((prev) => {
+      const fallback = prev.widths[key] ?? DEFAULT_WIDTH_BY_KEY[key] ?? 120;
+      return normalizeColumnPreferences({
+        ...prev,
+        widths: { ...prev.widths, [key]: clampColumnWidth(width, fallback) },
+      });
+    });
+  }, []);
+
+  const handleColumnResizeStop = useCallback((key: string, width: number) => {
+    setColumnPrefs((prev) => {
+      const fallback = prev.widths[key] ?? DEFAULT_WIDTH_BY_KEY[key] ?? 120;
+      const next = normalizeColumnPreferences({
+        ...prev,
+        widths: { ...prev.widths, [key]: clampColumnWidth(width, fallback) },
+      });
+      saveColumnPreferences(next);
+      return next;
+    });
+  }, []);
+
+  const allColumns = useMemo(
+    () => buildQuotationListColumns({
+      navigate,
+      onCopy: handleCopy,
+      onDelete: handleDelete,
+      onExport: openExport,
+    }),
+    [navigate]
+  );
+
+  const columns = useMemo(
+    () => applyColumnPreferences(
+      allColumns,
+      columnPrefs.order,
+      columnPrefs.visible,
+      columnPrefs.widths,
+      { onResize: handleColumnResize, onResizeStop: handleColumnResizeStop }
+    ),
+    [allColumns, columnPrefs, handleColumnResize, handleColumnResizeStop]
+  );
+
+  const scrollX = useMemo(() => estimateTableScrollX(columns), [columns]);
 
   return (
     <div className="page-container">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">报价单管理</h1>
-        <Button type="primary" icon={<PlusOutlined />} size="large" onClick={() => navigate('/quotations/new')}>
-          新建报价单
-        </Button>
-      </div>
+      <PageHeader
+        title="报价单管理"
+        extra={(
+          <>
+            <Button
+              icon={<FileExcelOutlined />}
+              disabled={selectedRowKeys.length === 0}
+              onClick={handleSummaryExport}
+            >
+              导出汇总 {selectedRowKeys.length > 0 && `(${selectedRowKeys.length})`}
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/quotations/new')}>
+              新建报价单
+            </Button>
+          </>
+        )}
+      />
 
       <div className="card-panel mb-4">
-        <Space wrap>
-          <Input.Search
-            placeholder="搜索报价单号/品牌"
-            allowClear
-            style={{ width: 260 }}
-            onSearch={(v) => { setSearch(v); setPage(1); loadData(); }}
-          />
-          <Select
-            placeholder="状态筛选"
-            allowClear
-            style={{ width: 140 }}
-            value={status}
-            onChange={(v) => { setStatus(v); setPage(1); }}
-            options={Object.entries(statusMap).map(([k, v]) => ({ value: k, label: v.text }))}
+        <Space wrap className="w-full justify-between">
+          <Space wrap>
+            <Input.Search
+              placeholder="搜索报价单号/品牌/款号"
+              allowClear
+              style={{ width: 240 }}
+              onSearch={handleSearch}
+            />
+            <Select
+              placeholder="品牌"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              style={{ width: 140 }}
+              value={brandId}
+              onChange={(v) => {
+                setBrandId(v);
+                setAgentName(undefined);
+                setPage(1);
+              }}
+              options={brands.map((b) => ({ value: b.id, label: b.name }))}
+            />
+            <Select
+              placeholder="业务员"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              style={{ width: 130 }}
+              value={agentName}
+              onChange={(v) => { setAgentName(v); setPage(1); }}
+              options={agentOptions}
+            />
+            <Select
+              placeholder="状态"
+              allowClear
+              style={{ width: 120 }}
+              value={status}
+              onChange={(v) => { setStatus(v); setPage(1); }}
+              options={Object.entries(statusMap).map(([k, v]) => ({ value: k, label: v.text }))}
+            />
+          </Space>
+          <TableColumnSettings
+            columns={QUOTATION_LIST_COLUMN_DEFS}
+            value={columnPrefs}
+            onChange={setColumnPrefs}
           />
         </Space>
       </div>
 
       <div className="card-panel">
         <Table
+          className="quotation-list-table"
           rowKey="id"
+          components={TABLE_HEADER_COMPONENTS}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys as number[]),
+          }}
           columns={columns}
           dataSource={data}
           loading={loading}
-          scroll={{ x: 1100 }}
+          scroll={{ x: scrollX }}
           pagination={{
             current: page,
             total,
@@ -159,12 +317,22 @@ export default function QuotationList() {
       </div>
 
       <Modal
-        title="导出 Excel"
+        title="导出标价表"
         open={exportModal.visible}
         onOk={handleExport}
         onCancel={() => setExportModal({ visible: false })}
+        width={480}
       >
         <div className="space-y-4 py-2">
+          <div>
+            <label className="text-sm text-gray-600 block mb-1">文件名</label>
+            <AntInput
+              value={exportOptions.filename}
+              onChange={(e) => setExportOptions({ ...exportOptions, filename: e.target.value })}
+              placeholder="品牌_款号_日期.xlsx"
+            />
+            <p className="text-xs text-gray-400 mt-1">默认规则：品牌_款号_日期，多款号时追加「等」</p>
+          </div>
           <div>
             <label className="text-sm text-gray-600 block mb-1">选择模板</label>
             <Select

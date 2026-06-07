@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   round2,
   calcGrossWidth,
+  calcNetWidth,
   calcFabricConsumption,
   calcFabricAmount,
   calcAccessoryAmount,
   calcLaborRmb,
   calcItemCost,
-  calcValidUntil,
   formatQuotationNo,
   formatItemNo,
 } from '../utils/calculation.js';
@@ -27,27 +27,37 @@ describe('calcGrossWidth', () => {
   });
 });
 
+describe('calcNetWidth', () => {
+  it('subtracts 5 from gross width', () => {
+    expect(calcNetWidth(155)).toBe(150);
+    expect(calcNetWidth(5)).toBe(0);
+    expect(calcNetWidth(3)).toBe(0);
+  });
+});
+
 describe('calcFabricConsumption - meter unit', () => {
-  it('calculates consumption with wastage', () => {
-    // 段长2.5m, 损耗5% => 2.5 * 1.05 = 2.625 => 2.63
+  it('converts piece length from cm to meters with wastage', () => {
+    // 段长100cm => 1m, 损耗5% => 1 * 1.05 = 1.05
     const result = calcFabricConsumption({
-      pieceLength: 2.5,
+      pieceLength: 100,
       wastage: 5,
       unit: 'meter',
       unitPrice: 10,
     });
-    expect(result).toBe(2.63);
+    expect(result).toBe(1.05);
   });
 
-  it('handles zero wastage', () => {
-    expect(
-      calcFabricConsumption({
-        pieceLength: 3,
-        wastage: 0,
-        unit: 'meter',
-        unitPrice: 10,
-      })
-    ).toBe(3);
+  it('ignores gross width and weight for meter unit', () => {
+    // 段长250cm => 2.5m, 损耗5% => 2.625 => 2.63
+    const result = calcFabricConsumption({
+      pieceLength: 250,
+      wastage: 5,
+      unit: 'meter',
+      grossWidth: 155,
+      weight: 200,
+      unitPrice: 10,
+    });
+    expect(result).toBe(2.63);
   });
 });
 
@@ -82,15 +92,16 @@ describe('calcFabricConsumption - kg unit', () => {
 });
 
 describe('calcFabricAmount', () => {
-  it('consumption * unit price', () => {
+  it('consumption * unit price for meter unit', () => {
+    // 单耗 1.05 * 单价 28.5 = 29.925 => 29.93
     expect(
       calcFabricAmount({
-        pieceLength: 2,
-        wastage: 0,
+        pieceLength: 100,
+        wastage: 5,
         unit: 'meter',
-        unitPrice: 25.5,
+        unitPrice: 28.5,
       })
-    ).toBe(51);
+    ).toBe(29.93);
   });
 });
 
@@ -135,7 +146,7 @@ describe('calcItemCost', () => {
     shippingRmb: 1,
     fabrics: [
       {
-        pieceLength: 2,
+        pieceLength: 100,
         wastage: 5,
         unit: 'meter' as const,
         unitPrice: 20,
@@ -152,34 +163,17 @@ describe('calcItemCost', () => {
 
   it('calculates full item cost in RMB', () => {
     const result = calcItemCost(baseItem, 6.8, 'RMB', 5);
-    // fabric: 2*1.05=2.1, amount=42
-    expect(result.fabrics[0].consumption).toBe(2.1);
-    expect(result.fabricTotal).toBe(42);
-    // accessory: 1*1.05*10=10.5
+    expect(result.fabrics[0].consumption).toBe(1.05);
+    expect(result.fabricTotal).toBe(21);
     expect(result.accessoryTotal).toBe(10.5);
-    // labor: 10*6.8*1.13=76.84
     expect(result.laborRmb).toBe(76.84);
-    // subtotal: 42+10.5+76.84+5+1=135.34
-    expect(result.subtotalRmb).toBe(135.34);
-    // final: 135.34*1.05=142.107 => 142.11
-    expect(result.finalPrice).toBe(142.11);
+    expect(result.subtotalRmb).toBe(114.34);
+    expect(result.finalPrice).toBe(120.06);
   });
 
   it('calculates final price in USD', () => {
     const result = calcItemCost(baseItem, 6.8, 'USD', 5);
-    // (135.34 / 6.8) * 1.05 = 20.907... => 20.91 (浮点精度可能为 20.9)
-    expect(result.finalPrice).toBeGreaterThanOrEqual(20.9);
-    expect(result.finalPrice).toBeLessThanOrEqual(20.91);
-  });
-});
-
-describe('calcValidUntil', () => {
-  it('adds 4 months to quote date', () => {
-    const quoteDate = new Date('2026-01-15');
-    const validUntil = calcValidUntil(quoteDate);
-    expect(validUntil.getFullYear()).toBe(2026);
-    expect(validUntil.getMonth()).toBe(4); // May (0-indexed)
-    expect(validUntil.getDate()).toBe(15);
+    expect(result.finalPrice).toBe(17.66);
   });
 });
 

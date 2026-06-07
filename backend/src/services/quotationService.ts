@@ -1,10 +1,10 @@
 import { query, getClient } from '../config/database.js';
 import {
   calcItemCost,
-  calcValidUntil,
   calcGrossWidth,
   calcFabricConsumption,
   calcAccessoryAmount,
+  resolveGrossWidth,
   type FabricInput,
   type AccessoryInput,
 } from '../utils/calculation.js';
@@ -17,12 +17,20 @@ import {
   getExchangeRate,
 } from './sequenceService.js';
 
+function parseOptionalPrice(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 100) / 100;
+}
+
 interface FabricRow {
   fabric_id?: number;
   name?: string;
   composition?: string;
   weight?: number;
   net_width?: number;
+  gross_width?: number;
   unit?: string;
   piece_length?: number;
   wastage?: number;
@@ -32,6 +40,7 @@ interface FabricRow {
 interface AccessoryRow {
   accessory_id?: number;
   name?: string;
+  specification?: string;
   consumption?: number;
   wastage?: number;
   unit_price?: number;
@@ -58,17 +67,20 @@ interface ItemRow {
 }
 
 function computeFabricRow(f: FabricRow) {
+  const grossWidth = resolveGrossWidth({
+    netWidth: Number(f.net_width || 0),
+    grossWidth: f.gross_width != null ? Number(f.gross_width) : undefined,
+  });
   const input: FabricInput = {
     pieceLength: Number(f.piece_length || 0),
     wastage: Number(f.wastage ?? 5),
     unit: (f.unit as 'meter' | 'kg') || 'meter',
     netWidth: Number(f.net_width || 0),
+    grossWidth,
     weight: Number(f.weight || 0),
     unitPrice: Number(f.unit_price || 0),
   };
   const consumption = calcFabricConsumption(input);
-  const amount = consumption * input.unitPrice;
-  const grossWidth = calcGrossWidth(Number(f.net_width || 0));
   return {
     ...f,
     gross_width: grossWidth,
@@ -108,6 +120,7 @@ function computeItemTotals(
         wastage: Number(f.wastage ?? 5),
         unit: (f.unit as 'meter' | 'kg') || 'meter',
         netWidth: Number(f.net_width || 0),
+        grossWidth: Number(f.gross_width ?? calcGrossWidth(Number(f.net_width || 0))),
         weight: Number(f.weight || 0),
         unitPrice: Number(f.unit_price || 0),
       })),
@@ -161,9 +174,9 @@ async function saveItemAccessories(itemId: number, accessories: AccessoryRow[], 
   for (let i = 0; i < accessories.length; i++) {
     const a = computeAccessoryRow(accessories[i]);
     await q(
-      `INSERT INTO item_accessories (item_id, accessory_id, name, consumption, wastage, unit_price, amount, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [itemId, a.accessory_id || null, a.name, a.consumption ?? 1, a.wastage ?? 5, a.unit_price, a.amount, i]
+      `INSERT INTO item_accessories (item_id, accessory_id, name, specification, consumption, wastage, unit_price, amount, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [itemId, a.accessory_id || null, a.name, a.specification || null, a.consumption ?? 1, a.wastage ?? 5, a.unit_price, a.amount, i]
     );
     if (a.accessory_id) await trackAccessoryUsage(a.accessory_id);
   }
@@ -212,6 +225,50 @@ export async function getQuotationFull(id: number) {
   return { ...qResult.rows[0], items };
 }
 
+async function validateAgentForBrand(brandId: number, agentName: string | undefined, dbClient?: DbClient) {
+  if (!brandId || !agentName) return;
+  // #region agent log
+  const { debugLog } = await import('../utils/debugLog.js');
+  debugLog('quotationService.ts:validateAgentForBrand', 'validating agent', {
+    brandId,
+    agentName,
+    hasDbClient: !!dbClient,
+    queryThisLost: dbClient ? dbClient.query !== dbClient.query.bind(dbClient) : false,
+  }, 'B');
+  // #endregion
+  const result = dbClient
+    ? await dbClient.query(
+        `SELECT 1 FROM agents a
+     WHERE a.brand_id = $1 AND a.name = $2`,
+        [brandId, agentName]
+      )
+    : await query(
+        `SELECT 1 FROM agents a
+     WHERE a.brand_id = $1 AND a.name = $2`,
+        [brandId, agentName]
+      );
+  if (result.rows.length === 0) {
+    throw new Error('所选业务员未关联到该品牌');
+  }
+}
+
+async function resolveAgentName(
+  brandId: number | null | undefined,
+  agentName: string | undefined,
+  dbClient: { query: typeof query }
+): Promise<string> {
+  if (agentName) return agentName;
+  if (!brandId) return '';
+  const result = await dbClient.query(
+    `SELECT a.name FROM agents a
+     WHERE a.brand_id = $1
+     ORDER BY a.name ASC
+     LIMIT 1`,
+    [brandId]
+  );
+  return (result.rows[0] as { name?: string } | undefined)?.name || '';
+}
+
 export async function createQuotation(data: Record<string, unknown>) {
   const client = await getClient();
   try {
@@ -221,31 +278,42 @@ export async function createQuotation(data: Record<string, unknown>) {
       ? Number(data.exchange_rate)
       : await getExchangeRate();
     const quoteDate = data.quote_date ? new Date(data.quote_date as string) : new Date();
-    const validUntil = data.valid_until
-      ? new Date(data.valid_until as string)
-      : calcValidUntil(quoteDate);
+    const fabricDeliveryDate = data.fabric_delivery_date
+      ? (data.fabric_delivery_date as string)
+      : null;
+    const garmentDeliveryDate = data.garment_delivery_date
+      ? (data.garment_delivery_date as string)
+      : null;
 
-    let agentName = data.agent_name as string;
-    if (data.brand_id && !agentName) {
-      const brandResult = await client.query(
-        `SELECT a.name FROM brands b JOIN agents a ON b.agent_id = a.id WHERE b.id = $1`,
-        [data.brand_id]
-      );
-      agentName = brandResult.rows[0]?.name || '';
+    let agentName = await resolveAgentName(
+      data.brand_id ? Number(data.brand_id) : undefined,
+      data.agent_name as string | undefined,
+      client
+    );
+    if (data.brand_id && agentName) {
+      await validateAgentForBrand(Number(data.brand_id), agentName, client);
     }
 
     const quotationNo = await nextQuotationNo();
 
     const qResult = await client.query(
       `INSERT INTO quotations (quotation_no, brand_id, agent_name, currency, exchange_rate,
-        quote_date, valid_until, profit_margin, remarks, status, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+        quote_date, fabric_delivery_date, garment_delivery_date,
+        target_labor_price, target_garment_price, confirmed_labor_price, confirmed_garment_price,
+        profit_margin, remarks, style_image, status, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
       [
         quotationNo, data.brand_id || null, agentName,
-        data.currency || 'RMB', exchangeRate,
+        data.currency || 'RMB', Math.round(exchangeRate * 100) / 100,
         quoteDate.toISOString().split('T')[0],
-        validUntil.toISOString().split('T')[0],
+        fabricDeliveryDate,
+        garmentDeliveryDate,
+        parseOptionalPrice(data.target_labor_price),
+        parseOptionalPrice(data.target_garment_price),
+        parseOptionalPrice(data.confirmed_labor_price),
+        parseOptionalPrice(data.confirmed_garment_price),
         data.profit_margin ?? 5, data.remarks || null,
+        data.style_image || null,
         data.status || 'draft', data.created_by || 'system',
       ]
     );
@@ -349,26 +417,34 @@ export async function updateQuotation(id: number, data: Record<string, unknown>)
     const currency = (data.currency as 'RMB' | 'USD') || 'RMB';
     const profitMargin = Number(data.profit_margin ?? 5);
 
-    let agentName = data.agent_name as string;
-    if (data.brand_id) {
-      const brandResult = await client.query(
-        `SELECT a.name FROM brands b JOIN agents a ON b.agent_id = a.id WHERE b.id = $1`,
-        [data.brand_id]
-      );
-      agentName = brandResult.rows[0]?.name || agentName;
+    const agentName = data.agent_name as string | undefined;
+    if (data.brand_id && agentName) {
+      await validateAgentForBrand(Number(data.brand_id), agentName, client);
       await trackBrandUsage(Number(data.brand_id));
     }
 
     await client.query(
       `UPDATE quotations SET brand_id = COALESCE($1, brand_id), agent_name = COALESCE($2, agent_name),
         currency = COALESCE($3, currency), exchange_rate = $4, quote_date = COALESCE($5, quote_date),
-        valid_until = COALESCE($6, valid_until), profit_margin = COALESCE($7, profit_margin),
-        remarks = COALESCE($8, remarks), status = COALESCE($9, status), updated_at = NOW()
-       WHERE id = $10`,
+        fabric_delivery_date = COALESCE($6, fabric_delivery_date),
+        garment_delivery_date = COALESCE($7, garment_delivery_date),
+        target_labor_price = $8,
+        target_garment_price = $9,
+        confirmed_labor_price = $10,
+        confirmed_garment_price = $11,
+        profit_margin = COALESCE($12, profit_margin),
+        remarks = COALESCE($13, remarks), style_image = COALESCE($14, style_image),
+        status = COALESCE($15, status), updated_at = NOW()
+       WHERE id = $16`,
       [
-        data.brand_id, agentName, data.currency, exchangeRate,
-        data.quote_date, data.valid_until, data.profit_margin,
-        data.remarks, data.status, id,
+        data.brand_id, agentName, data.currency, Math.round(exchangeRate * 100) / 100,
+        data.quote_date, data.fabric_delivery_date, data.garment_delivery_date,
+        parseOptionalPrice(data.target_labor_price),
+        parseOptionalPrice(data.target_garment_price),
+        parseOptionalPrice(data.confirmed_labor_price),
+        parseOptionalPrice(data.confirmed_garment_price),
+        data.profit_margin,
+        data.remarks, data.style_image, data.status, id,
       ]
     );
 
@@ -489,7 +565,12 @@ export async function buildExportData(quotationId: number): Promise<Record<strin
     currency: q.currency as string,
     exchange_rate: q.exchange_rate as number,
     quote_date: q.quote_date as string,
-    valid_until: q.valid_until as string,
+    fabric_delivery_date: q.fabric_delivery_date as string,
+    garment_delivery_date: q.garment_delivery_date as string,
+    target_labor_price: q.target_labor_price as number,
+    target_garment_price: q.target_garment_price as number,
+    confirmed_labor_price: q.confirmed_labor_price as number,
+    confirmed_garment_price: q.confirmed_garment_price as number,
     profit_margin: q.profit_margin as number,
     remarks: q.remarks as string,
     items: ((quotation as { items: Array<Record<string, unknown>> }).items || []).map((item) => ({

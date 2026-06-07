@@ -1,16 +1,53 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Upload, Progress, message } from 'antd';
-import { InboxOutlined, DeleteOutlined, FileImageOutlined, VideoCameraOutlined } from '@ant-design/icons';
-import type { UploadFile } from 'antd/es/upload/interface';
+import { InboxOutlined } from '@ant-design/icons';
 import { uploadFile } from '@/api';
+import AttachmentPreviewList from '@/components/AttachmentPreviewList';
 
 interface FileUploadProps {
   value?: string[];
   onChange?: (paths: string[]) => void;
   accept?: string;
   maxCount?: number;
-  listType?: 'picture' | 'text';
   hint?: string;
+  compact?: boolean;
+  mini?: boolean;
+  hideDraggerWhenFull?: boolean;
+  showPreview?: boolean;
+}
+
+function isAcceptedFile(file: File, accept: string): boolean {
+  const parts = accept.split(',').map((s) => s.trim()).filter(Boolean);
+  if (parts.length === 0) return true;
+  return parts.some((part) => {
+    if (part.startsWith('.')) {
+      return file.name.toLowerCase().endsWith(part.toLowerCase());
+    }
+    if (part.endsWith('/*')) {
+      return file.type.startsWith(part.slice(0, -1));
+    }
+    return file.type === part;
+  });
+}
+
+function readClipboardFiles(data: DataTransfer | null): File[] {
+  if (!data) return [];
+  const files: File[] = [];
+  if (data.files?.length) {
+    for (let i = 0; i < data.files.length; i++) {
+      files.push(data.files[i]);
+    }
+  }
+  if (files.length === 0 && data.items) {
+    for (let i = 0; i < data.items.length; i++) {
+      const item = data.items[i];
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+  }
+  return files;
 }
 
 export default function FileUpload({
@@ -18,101 +55,123 @@ export default function FileUpload({
   onChange,
   accept = 'image/*,video/*,.pdf,.doc,.docx',
   maxCount = 5,
-  listType = 'picture',
-  hint = '点击或拖拽文件到此区域上传',
+  hint = '点击、拖拽或粘贴文件到此处上传',
+  compact = false,
+  mini = false,
+  hideDraggerWhenFull = false,
+  showPreview = true,
 }: FileUploadProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+
   const [dragOver, setDragOver] = useState(false);
+  const [pasteReady, setPasteReady] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  const fileList: UploadFile[] = value.map((path, i) => ({
-    uid: `${i}`,
-    name: path.split('/').pop() || path,
-    status: 'done' as const,
-    url: `/${path}`,
-  }));
-
-  const handleUpload = useCallback(
-    async (file: File) => {
-      if (value.length >= maxCount) {
-        message.warning(`最多上传 ${maxCount} 个文件`);
-        return false;
-      }
+  const uploadFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
+      let paths = [...valueRef.current];
 
       setUploading(true);
-      setProgress(0);
       try {
-        const result = await uploadFile(file, setProgress);
-        onChange?.([...value, result.path]);
-        message.success('上传成功');
+        for (const file of files) {
+          if (paths.length >= maxCount) {
+            message.warning(`最多上传 ${maxCount} 个文件`);
+            break;
+          }
+          if (!isAcceptedFile(file, accept)) {
+            message.warning(`不支持该文件类型：${file.name}`);
+            continue;
+          }
+          setProgress(0);
+          const result = await uploadFile(file, setProgress);
+          paths = [...paths, result.path];
+          onChange?.(paths);
+        }
+        if (paths.length > valueRef.current.length) {
+          message.success('上传成功');
+        }
       } catch (err) {
         message.error(String(err));
       } finally {
         setUploading(false);
         setProgress(0);
       }
-      return false;
     },
-    [value, maxCount, onChange]
+    [maxCount, onChange, accept]
   );
 
-  const handleRemove = (uid: string) => {
-    const idx = parseInt(uid, 10);
-    onChange?.(value.filter((_, i) => i !== idx));
+  const handleUpload = useCallback(
+    async (file: File) => {
+      await uploadFiles([file]);
+      return false;
+    },
+    [uploadFiles]
+  );
+
+  useEffect(() => {
+    const onDocumentPaste = (e: ClipboardEvent) => {
+      if (!pasteReady || uploading) return;
+      const files = readClipboardFiles(e.clipboardData);
+      if (files.length === 0) return;
+      e.preventDefault();
+      uploadFiles(files);
+    };
+    document.addEventListener('paste', onDocumentPaste);
+    return () => document.removeEventListener('paste', onDocumentPaste);
+  }, [pasteReady, uploadFiles, uploading]);
+
+  const handleRemove = (index: number) => {
+    onChange?.(value.filter((_, i) => i !== index));
   };
 
+  const disabled = uploading || value.length >= maxCount;
+  const hideDragger = hideDraggerWhenFull && value.length >= maxCount;
+  const draggerClass = [
+    'upload-dragger',
+    compact && 'upload-dragger-compact',
+    mini && 'upload-dragger-mini',
+    (dragOver || pasteReady) && 'drag-over',
+  ].filter(Boolean).join(' ');
+
   return (
-    <div className="space-y-3">
-      <div
-        className={`upload-dragger ${dragOver ? 'drag-over' : ''}`}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={() => setDragOver(false)}
-      >
-      <Upload.Dragger
-        accept={accept}
-        showUploadList={false}
-        beforeUpload={handleUpload}
-        disabled={uploading || value.length >= maxCount}
-        className="border-none bg-transparent"
-      >
-        <p className="ant-upload-drag-icon">
-          <InboxOutlined className="text-brand-500 text-3xl" />
-        </p>
-        <p className="text-gray-600">{hint}</p>
-        <p className="text-gray-400 text-sm">图片≤5MB自动压缩，视频≤500MB</p>
-      </Upload.Dragger>
-      </div>
+    <div ref={containerRef} className="space-y-2">
+      {showPreview && value.length > 0 && (
+        <AttachmentPreviewList paths={value} onRemove={handleRemove} />
+      )}
+
+      {!hideDragger && (
+        <div
+          className={draggerClass}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={() => setDragOver(false)}
+          onMouseEnter={() => setPasteReady(true)}
+          onMouseLeave={() => setPasteReady(false)}
+          onFocus={() => setPasteReady(true)}
+          onBlur={() => setPasteReady(false)}
+          tabIndex={0}
+        >
+          <Upload.Dragger
+            accept={accept}
+            showUploadList={false}
+            beforeUpload={handleUpload}
+            disabled={disabled}
+            className="border-none bg-transparent !p-0"
+          >
+            <p className={`ant-upload-drag-icon ${compact || mini ? '!mb-0' : ''}`}>
+              <InboxOutlined className={`text-brand-500 ${mini ? 'text-base' : compact ? 'text-xl' : 'text-3xl'}`} />
+            </p>
+            <p className={`text-gray-600 ${mini ? 'text-xs leading-tight' : compact ? 'text-xs' : 'text-sm'}`}>{hint}</p>
+          </Upload.Dragger>
+        </div>
+      )}
 
       {uploading && (
         <Progress percent={progress} size="small" strokeColor="#2563eb" />
-      )}
-
-      {fileList.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {fileList.map((file) => (
-            <div
-              key={file.uid}
-              className="relative group border rounded-lg p-2 bg-gray-50 flex items-center gap-2"
-            >
-              {file.url?.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                <img src={file.url} alt="" className="w-12 h-12 object-cover rounded" />
-              ) : file.url?.match(/\.(mp4|webm|mov)$/i) ? (
-                <VideoCameraOutlined className="text-2xl text-brand-500" />
-              ) : (
-                <FileImageOutlined className="text-2xl text-gray-400" />
-              )}
-              <span className="text-sm text-gray-600 max-w-[120px] truncate">{file.name}</span>
-              <button
-                type="button"
-                onClick={() => handleRemove(file.uid)}
-                className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <DeleteOutlined className="text-xs" />
-              </button>
-            </div>
-          ))}
-        </div>
       )}
     </div>
   );

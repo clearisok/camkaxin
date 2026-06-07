@@ -3,6 +3,7 @@ import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Popcon
 import { PlusOutlined } from '@ant-design/icons';
 import { getAllAccessories, createAccessory, updateAccessory, deleteAccessory } from '@/api';
 import type { Accessory } from '@/types';
+import PageHeader from '@/components/PageHeader';
 
 export default function AccessoryManage() {
   const [data, setData] = useState<Accessory[]>([]);
@@ -46,6 +47,7 @@ export default function AccessoryManage() {
 
   const columns = [
     { title: '名称', dataIndex: 'name' },
+    { title: '规格', dataIndex: 'specification', ellipsis: true },
     { title: '参考单价', dataIndex: 'reference_price', width: 120 },
     { title: '使用次数', dataIndex: 'use_count', width: 100 },
     {
@@ -67,13 +69,15 @@ export default function AccessoryManage() {
 
   return (
     <div className="page-container">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">辅料库</h1>
-          <p className="text-gray-500 text-sm mt-1">报价时使用的辅料自动沉淀到此库</p>
-        </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModalOpen(true); }}>新增辅料</Button>
-      </div>
+      <PageHeader
+        title="辅料库"
+        description="报价时使用的辅料自动沉淀到此库"
+        extra={(
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModalOpen(true); }}>
+            新增辅料
+          </Button>
+        )}
+      />
       <div className="card-panel">
         <Table rowKey="id" columns={columns} dataSource={data} loading={loading} pagination={false} />
       </div>
@@ -81,6 +85,7 @@ export default function AccessoryManage() {
       <Modal title={editing ? '编辑辅料' : '新增辅料'} open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)}>
         <Form form={form} layout="vertical" initialValues={{ status: 'active' }}>
           <Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="specification" label="规格"><Input placeholder="如：3#拉链，铜色" /></Form.Item>
           <Form.Item name="reference_price" label="参考单价"><InputNumber className="w-full" min={0} step={0.01} /></Form.Item>
           <Form.Item name="status" label="状态">
             <Select options={[{ value: 'active', label: '启用' }, { value: 'inactive', label: '停用' }]} />

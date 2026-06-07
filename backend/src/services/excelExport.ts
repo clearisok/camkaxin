@@ -1,6 +1,9 @@
 import ExcelJS from 'exceljs';
 import fs from 'fs';
 import path from 'path';
+import sharp from 'sharp';
+
+const IMAGE_SIZE = 150;
 
 interface ExportItem {
   product_code?: string;
@@ -28,7 +31,12 @@ interface ExportQuotation {
   currency?: string;
   exchange_rate?: number;
   quote_date?: string;
-  valid_until?: string;
+  fabric_delivery_date?: string;
+  garment_delivery_date?: string;
+  target_labor_price?: number;
+  target_garment_price?: number;
+  confirmed_labor_price?: number;
+  confirmed_garment_price?: number;
   profit_margin?: number;
   remarks?: string;
   brand_name?: string;
@@ -42,7 +50,13 @@ const PLACEHOLDER_MAP: Record<string, (q: ExportQuotation, item?: ExportItem) =>
   报价币种: (q) => q.currency || '',
   汇率: (q) => String(q.exchange_rate || ''),
   报价日期: (q) => q.quote_date || '',
-  有效期至: (q) => q.valid_until || '',
+  面料交期: (q) => q.fabric_delivery_date || '',
+  成衣交期: (q) => q.garment_delivery_date || '',
+  目标工价: (q) => (q.target_labor_price != null ? String(q.target_labor_price) : ''),
+  目标成衣价格: (q) => (q.target_garment_price != null ? String(q.target_garment_price) : ''),
+  确认工价: (q) => (q.confirmed_labor_price != null ? String(q.confirmed_labor_price) : ''),
+  确认成衣价格: (q) => (q.confirmed_garment_price != null ? String(q.confirmed_garment_price) : ''),
+  有效期至: (q) => q.garment_delivery_date || '',
   利润率: (q) => `${q.profit_margin || 0}%`,
   备注: (q) => q.remarks || '',
   款号: (_q, item) => item?.product_code || '',
@@ -62,9 +76,50 @@ const PLACEHOLDER_MAP: Record<string, (q: ExportQuotation, item?: ExportItem) =>
 
 const TABLE_COLUMNS: Record<string, string[]> = {
   FabricTable: ['name', 'composition', 'weight', 'net_width', 'gross_width', 'unit', 'piece_length', 'wastage', 'consumption', 'unit_price', 'amount'],
-  AccessoryTable: ['name', 'consumption', 'wastage', 'unit_price', 'amount'],
+  AccessoryTable: ['name', 'specification', 'consumption', 'wastage', 'unit_price', 'amount'],
   QuantityTierTable: ['min_qty', 'max_qty', 'price'],
 };
+
+/** 单元格是否含公式 */
+function cellHasFormula(cell: ExcelJS.Cell): boolean {
+  const v = cell.value;
+  if (v && typeof v === 'object' && 'formula' in v && (v as { formula?: string }).formula) {
+    return true;
+  }
+  if (cell.formula) return true;
+  return false;
+}
+
+function resolveImagePath(imagePath: string): string | null {
+  if (!imagePath) return null;
+  const candidates = [
+    imagePath,
+    path.join(process.cwd(), imagePath),
+    path.join(process.cwd(), imagePath.replace(/^\//, '')),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+/** 裁切为固定尺寸（保持比例，居中裁剪） */
+async function loadImageBuffer(imagePath: string, size = IMAGE_SIZE): Promise<{ buffer: Uint8Array; extension: 'png' | 'jpeg' | 'gif' } | null> {
+  const resolved = resolveImagePath(imagePath);
+  if (!resolved) return null;
+
+  const ext = path.extname(resolved).toLowerCase();
+  let extension: 'png' | 'jpeg' | 'gif' = 'jpeg';
+  if (ext === '.png') extension = 'png';
+  else if (ext === '.gif') extension = 'gif';
+
+  const raw = await sharp(resolved)
+    .resize(size, size, { fit: 'cover', position: 'centre' })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+
+  return { buffer: new Uint8Array(raw), extension: 'jpeg' };
+}
 
 function replacePlaceholders(
   worksheet: ExcelJS.Worksheet,
@@ -73,17 +128,22 @@ function replacePlaceholders(
 ) {
   worksheet.eachRow((row) => {
     row.eachCell((cell) => {
+      if (cellHasFormula(cell)) return;
+
       if (typeof cell.value === 'string') {
         let value = cell.value as string;
         const matches = value.match(/\$\{([^}]+)\}/g);
-        if (matches) {
-          for (const match of matches) {
-            const key = match.slice(2, -1);
-            const resolver = PLACEHOLDER_MAP[key];
-            if (resolver) {
-              value = value.replace(match, resolver(quotation, item));
-            }
+        if (!matches) return;
+
+        for (const match of matches) {
+          const key = match.slice(2, -1);
+          if (key === '款式图') continue;
+          const resolver = PLACEHOLDER_MAP[key];
+          if (resolver) {
+            value = value.replace(match, resolver(quotation, item));
           }
+        }
+        if (value !== cell.value) {
           cell.value = value;
         }
       }
@@ -91,7 +151,7 @@ function replacePlaceholders(
   });
 }
 
-async function fillNamedTable(
+function fillNamedTable(
   worksheet: ExcelJS.Worksheet,
   tableName: string,
   rows: Array<Record<string, unknown>>
@@ -99,44 +159,25 @@ async function fillNamedTable(
   const columns = TABLE_COLUMNS[tableName];
   if (!columns) return;
 
-  const tables = (worksheet as unknown as { tables?: Record<string, { ref: string }> }).tables;
-  if (!tables || !tables[tableName]) {
-    // 查找包含表名的单元格作为起始点
-    let startRow = -1;
-    let startCol = -1;
-    worksheet.eachRow((row, rowNumber) => {
-      row.eachCell((cell, colNumber) => {
-        if (typeof cell.value === 'string' && cell.value.includes(`{{${tableName}}}`)) {
-          startRow = rowNumber;
-          startCol = colNumber;
-          cell.value = '';
-        }
-      });
+  let startRow = -1;
+  let startCol = -1;
+  worksheet.eachRow((row, rowNumber) => {
+    row.eachCell((cell, colNumber) => {
+      if (typeof cell.value === 'string' && cell.value.includes(`{{${tableName}}}`)) {
+        startRow = rowNumber;
+        startCol = colNumber;
+        cell.value = '';
+      }
     });
+  });
 
-    if (startRow === -1) return;
-
-    rows.forEach((data, index) => {
-      const rowNum = startRow + index;
-      columns.forEach((col, colIndex) => {
-        const cell = worksheet.getCell(rowNum, startCol + colIndex);
-        cell.value = data[col] != null ? String(data[col]) : '';
-      });
-    });
-    return;
-  }
-
-  const tableRef = tables[tableName].ref;
-  const match = tableRef.match(/([A-Z]+)(\d+)/);
-  if (!match) return;
-
-  const startRow = parseInt(match[2], 10) + 1;
-  const startCol = match[1].charCodeAt(0) - 64;
+  if (startRow === -1) return;
 
   rows.forEach((data, index) => {
     const rowNum = startRow + index;
     columns.forEach((col, colIndex) => {
       const cell = worksheet.getCell(rowNum, startCol + colIndex);
+      if (cellHasFormula(cell)) return;
       cell.value = data[col] != null ? String(data[col]) : '';
     });
   });
@@ -146,15 +187,17 @@ async function embedImage(
   workbook: ExcelJS.Workbook,
   worksheet: ExcelJS.Worksheet,
   imagePath: string,
-  placeholder: string
+  placeholder = '${款式图}'
 ) {
-  if (!imagePath || !fs.existsSync(imagePath)) return;
+  const img = await loadImageBuffer(imagePath);
+  if (!img) return;
 
   let targetRow = 1;
   let targetCol = 1;
   worksheet.eachRow((row, rowNumber) => {
     row.eachCell((cell, colNumber) => {
-      if (typeof cell.value === 'string' && cell.value.includes(placeholder)) {
+      const val = cell.value;
+      if (typeof val === 'string' && val.includes(placeholder)) {
         targetRow = rowNumber;
         targetCol = colNumber;
         cell.value = '';
@@ -163,14 +206,65 @@ async function embedImage(
   });
 
   const imageId = workbook.addImage({
-    filename: imagePath,
-    extension: path.extname(imagePath).slice(1) as 'png' | 'jpeg' | 'gif',
+    // exceljs Buffer type differs from Node @types; runtime accepts Uint8Array
+    buffer: img.buffer as never,
+    extension: img.extension,
   });
 
   worksheet.addImage(imageId, {
     tl: { col: targetCol - 1, row: targetRow - 1 },
-    ext: { width: 120, height: 120 },
+    ext: { width: IMAGE_SIZE, height: IMAGE_SIZE },
+    editAs: 'oneCell',
   });
+
+  worksheet.getRow(targetRow).height = Math.max(worksheet.getRow(targetRow).height || 0, IMAGE_SIZE * 0.75);
+  worksheet.getColumn(targetCol).width = Math.max(worksheet.getColumn(targetCol).width || 0, IMAGE_SIZE / 7);
+}
+
+async function processSheet(
+  workbook: ExcelJS.Workbook,
+  sheet: ExcelJS.Worksheet,
+  quotation: ExportQuotation,
+  item?: ExportItem
+) {
+  replacePlaceholders(sheet, quotation, item);
+  fillNamedTable(sheet, 'FabricTable', item?.fabrics || []);
+  fillNamedTable(sheet, 'AccessoryTable', item?.accessories || []);
+  fillNamedTable(sheet, 'QuantityTierTable', item?.quantity_tiers || []);
+
+  if (item?.style_image) {
+    await embedImage(workbook, sheet, item.style_image);
+  }
+}
+
+type SheetSnapshot = Array<{ rowNum: number; cells: Array<{ col: number; value: ExcelJS.CellValue; style?: ExcelJS.Style }> }>;
+
+function snapshotSheet(sheet: ExcelJS.Worksheet): SheetSnapshot {
+  const rows: SheetSnapshot = [];
+  sheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
+    const cells: SheetSnapshot[0]['cells'] = [];
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      cells.push({
+        col: colNumber,
+        value: cell.value as ExcelJS.CellValue,
+        style: cell.style ? (JSON.parse(JSON.stringify(cell.style)) as ExcelJS.Style) : undefined,
+      });
+    });
+    rows.push({ rowNum: rowNumber, cells });
+  });
+  return rows;
+}
+
+function restoreSheet(sheet: ExcelJS.Worksheet, snapshot: SheetSnapshot) {
+  for (const { rowNum, cells } of snapshot) {
+    const newRow = sheet.getRow(rowNum);
+    for (const { col, value, style } of cells) {
+      const newCell = newRow.getCell(col);
+      newCell.value = value;
+      if (style) newCell.style = style;
+    }
+    newRow.commit();
+  }
 }
 
 export async function exportQuotationToExcel(
@@ -181,63 +275,47 @@ export async function exportQuotationToExcel(
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(templatePath);
 
-  const items = quotation.items || [{} as ExportItem];
+  const items = quotation.items?.length ? quotation.items : [{} as ExportItem];
 
   if (options.splitByItem && items.length > 1) {
     const templateSheet = workbook.worksheets[0];
     if (!templateSheet) throw new Error('Template has no worksheets');
 
-    // 克隆模板 sheet 数据后再移除原 sheet
-    const templateRows: Array<{ rowNum: number; cells: Array<{ col: number; value: unknown; style?: ExcelJS.Style }> }> = [];
-    templateSheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
-      const cells: Array<{ col: number; value: unknown; style?: ExcelJS.Style }> = [];
-      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-        cells.push({ col: colNumber, value: cell.value as ExcelJS.CellValue, style: cell.style ? JSON.parse(JSON.stringify(cell.style)) as ExcelJS.Style : undefined });
-      });
-      templateRows.push({ rowNum: rowNumber, cells });
-    });
-
+    const snapshot = snapshotSheet(templateSheet);
     workbook.removeWorksheet(templateSheet.id);
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       const sheetName = (item.version_label || item.product_code || `明细行${i + 1}`).slice(0, 31);
       const newSheet = workbook.addWorksheet(sheetName);
-
-      for (const { rowNum, cells } of templateRows) {
-        const newRow = newSheet.getRow(rowNum);
-        for (const { col, value, style } of cells) {
-          const newCell = newRow.getCell(col);
-          newCell.value = value as ExcelJS.CellValue;
-          if (style) newCell.style = style as ExcelJS.Style;
-        }
-        newRow.commit();
-      }
-
-      replacePlaceholders(newSheet, quotation, item);
-      await fillNamedTable(newSheet, 'FabricTable', item.fabrics || []);
-      await fillNamedTable(newSheet, 'AccessoryTable', item.accessories || []);
-      await fillNamedTable(newSheet, 'QuantityTierTable', item.quantity_tiers || []);
-
-      if (item.style_image) {
-        await embedImage(workbook, newSheet, item.style_image, '${款式图}');
-      }
+      restoreSheet(newSheet, snapshot);
+      await processSheet(workbook, newSheet, quotation, item);
     }
   } else {
     const sheet = workbook.worksheets[0];
     if (!sheet) throw new Error('Template has no worksheets');
-
-    const item = items[0];
-    replacePlaceholders(sheet, quotation, item);
-    await fillNamedTable(sheet, 'FabricTable', item?.fabrics || []);
-    await fillNamedTable(sheet, 'AccessoryTable', item?.accessories || []);
-    await fillNamedTable(sheet, 'QuantityTierTable', item?.quantity_tiers || []);
-
-    if (item?.style_image) {
-      await embedImage(workbook, sheet, item.style_image, '${款式图}');
-    }
+    await processSheet(workbook, sheet, quotation, items[0]);
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
+
+/** 生成标价表默认文件名：品牌_款号_日期 */
+export function buildQuotationExportFilename(
+  quotation: ExportQuotation,
+  customFilename?: string
+): string {
+  if (customFilename) {
+    return customFilename.endsWith('.xlsx') ? customFilename : `${customFilename}.xlsx`;
+  }
+  const brand = (quotation.brand_name || '未知品牌').replace(/[/\\?*[\]:]/g, '_');
+  const items = quotation.items || [];
+  const codes = items.map((i) => i.product_code).filter(Boolean) as string[];
+  let codePart = codes[0] || '无款号';
+  if (codes.length > 1) codePart = `${codePart}等`;
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  return `${brand}_${codePart}_${date}.xlsx`;
+}
+
+export { loadImageBuffer, IMAGE_SIZE };

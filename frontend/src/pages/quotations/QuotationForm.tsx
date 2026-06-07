@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Form, Select, DatePicker, InputNumber, Input, Button, Tag, message, Spin, Space, Radio,
 } from 'antd';
-import { SaveOutlined, ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons';
+import { SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import {
   getQuotation, createQuotation, updateQuotation,
@@ -11,11 +11,20 @@ import {
   getBrandDefaultAccessories, trackBrandUsage,
 } from '@/api';
 import type { Quotation, QuotationItem, Brand, Fabric, Accessory } from '@/types';
+
+type BrandLinkedAgent = NonNullable<Brand['agents']>[number];
 import { createEmptyItem } from '@/types';
-import { calcValidUntil } from '@/utils/calculation';
-import { normalizeQuotationFromApi } from '@/utils/normalize';
+import { normalizeQuotationFromApi, roundRate } from '@/utils/normalize';
 import ItemEditor from '@/components/ItemEditor';
+import StyleImageUpload from '@/components/StyleImageUpload';
+import PageHeader from '@/components/PageHeader';
 import { FieldPermission } from '@/components/FieldPermission';
+
+const REMARKS_PLACEHOLDER = '着重填写：面料特性/部位情况(如口袋/门襟/裤耳等)/工艺';
+
+function formatOptionalPrice(value?: number): string {
+  return value != null && !Number.isNaN(value) ? value.toFixed(2) : '—';
+}
 
 export default function QuotationForm() {
   const { id } = useParams();
@@ -31,29 +40,57 @@ export default function QuotationForm() {
   const [fabrics, setFabrics] = useState<Fabric[]>([]);
   const [accessories, setAccessories] = useState<Accessory[]>([]);
   const [exchangeRate, setExchangeRate] = useState(6.8);
+  const [optionsReady, setOptionsReady] = useState(false);
+  const [agentDefaultWastage, setAgentDefaultWastage] = useState(5);
+  const [brandAgents, setBrandAgents] = useState<BrandLinkedAgent[]>([]);
 
   const [form, setForm] = useState<Quotation>({
     currency: 'RMB',
     exchange_rate: 6.8,
     profit_margin: 5,
     quote_date: dayjs().format('YYYY-MM-DD'),
-    valid_until: calcValidUntil(dayjs()).format('YYYY-MM-DD'),
     status: 'draft',
     items: [createEmptyItem()],
   });
 
+  const syncBrandAgents = (brandId?: number, currentAgentName?: string) => {
+    const brand = brands.find((b) => b.id === brandId);
+    const linked = brand?.agents || [];
+    setBrandAgents(linked);
+    const matched = linked.find((a) => a.name === currentAgentName);
+    if (matched?.default_wastage != null) {
+      setAgentDefaultWastage(matched.default_wastage);
+    } else if (linked.length === 1 && linked[0].default_wastage != null) {
+      setAgentDefaultWastage(linked[0].default_wastage);
+    }
+    return linked;
+  };
+
   useEffect(() => {
+    if (form.brand_id && brands.length > 0) {
+      syncBrandAgents(form.brand_id, form.agent_name);
+    }
+  }, [form.brand_id, form.agent_name, brands]);
+
+  useEffect(() => {
+    setOptionsReady(false);
     Promise.all([getBrands(), getFabrics(), getAccessories(), getSettings()])
       .then(([b, f, a, s]) => {
         setBrands(b.data || []);
         setFabrics(f.data || []);
         setAccessories(a.data || []);
-        const rate = parseFloat(s.data?.usd_to_rmb_rate || '6.8');
+        const rate = roundRate(s.data?.usd_to_rmb_rate, 6.8);
         setExchangeRate(rate);
         if (isNew) {
           setForm((prev) => ({ ...prev, exchange_rate: rate }));
         }
-      }).catch(() => {});
+      }).catch((loadErr) => {
+        // #region agent log
+        fetch('http://127.0.0.1:7866/ingest/949bb3a4-1e98-433b-8c2f-5ab46646876f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f51ef'},body:JSON.stringify({sessionId:'6f51ef',location:'QuotationForm.tsx:loadOptions',message:'Promise.all load failed',data:{error:String(loadErr),name:(loadErr as Error)?.name},timestamp:Date.now(),hypothesisId:'E',runId:'pre-fix'})}).catch(()=>{});
+        // #endregion
+        message.error((loadErr as Error).message || '加载选项失败');
+      })
+      .finally(() => setOptionsReady(true));
 
     if (id) {
       setLoading(true);
@@ -86,32 +123,49 @@ export default function QuotationForm() {
       use_count: a.use_count,
     })), [accessories]);
 
+  const applyAgent = (agent: BrandLinkedAgent | undefined) => {
+    if (!agent) return;
+    setAgentDefaultWastage(agent.default_wastage ?? 5);
+    setForm((prev) => ({ ...prev, agent_name: agent.name }));
+  };
+
   const handleBrandChange = async (brandId: number) => {
-    const brand = brands.find((b) => b.id === brandId);
+    const linked = syncBrandAgents(brandId);
+    const defaultAgent = linked.length === 1 ? linked[0] : undefined;
     setForm((prev) => ({
       ...prev,
       brand_id: brandId,
-      agent_name: brand?.agent_name_ref || '',
+      agent_name: defaultAgent?.name || '',
     }));
+    if (defaultAgent) {
+      setAgentDefaultWastage(defaultAgent.default_wastage ?? 5);
+    }
 
     try {
       await trackBrandUsage(brandId);
       const res = await getBrandDefaultAccessories(brandId);
       const defaultAccs = res.data || [];
+      const wastage = defaultAgent?.default_wastage ?? agentDefaultWastage;
       if (defaultAccs.length > 0 && form.items?.length) {
         const items = [...form.items];
         items[0] = {
           ...items[0],
           accessories: defaultAccs.map((a: Accessory) => ({
             name: a.name,
+            specification: a.specification,
             consumption: a.consumption ?? 1,
-            wastage: a.wastage ?? 5,
+            wastage,
             unit_price: a.unit_price ?? 0,
           })),
         };
         setForm((prev) => ({ ...prev, items }));
       }
     } catch { /* ignore */ }
+  };
+
+  const handleAgentChange = (agentName: string) => {
+    const agent = brandAgents.find((a) => a.name === agentName);
+    applyAgent(agent);
   };
 
   const updateItem = (index: number, item: QuotationItem) => {
@@ -143,13 +197,19 @@ export default function QuotationForm() {
       message.warning('请选择品牌');
       return;
     }
+    if (brandAgents.length > 0 && !form.agent_name) {
+      message.warning('请选择业务员');
+      return;
+    }
 
     setSaving(true);
     try {
       const payload = {
         ...form,
+        exchange_rate: roundRate(form.exchange_rate, exchangeRate),
         quote_date: form.quote_date,
-        valid_until: form.valid_until,
+        fabric_delivery_date: form.fabric_delivery_date,
+        garment_delivery_date: form.garment_delivery_date,
       };
 
       if (isNew) {
@@ -173,22 +233,16 @@ export default function QuotationForm() {
 
   return (
     <div className="page-container">
-      <div className="flex justify-between items-center mb-6">
-        <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/quotations')}>返回</Button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">
-              {isNew ? '新建报价单' : readOnly ? '查看报价单' : '编辑报价单'}
-            </h1>
-            {form.quotation_no && <span className="text-gray-500 text-sm">{form.quotation_no}</span>}
-          </div>
-        </Space>
-        {!readOnly && (
-          <Button type="primary" size="large" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+      <PageHeader
+        title={isNew ? '新建报价单' : readOnly ? '查看报价单' : '编辑报价单'}
+        subtitle={form.quotation_no}
+        onBack={() => navigate('/quotations')}
+        extra={!readOnly && (
+          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
             保存
           </Button>
         )}
-      </div>
+      />
 
       <div className="card-panel mb-6">
         <h2 className="section-title">基本信息</h2>
@@ -222,8 +276,19 @@ export default function QuotationForm() {
 
           <FieldPermission fieldCode="quotation.agent_name">
             <div>
-              <label className="text-sm text-gray-500 mb-1 block">业务员</label>
-              <Tag color="blue" className="text-sm px-3 py-1">{form.agent_name || '选择品牌后自动填入'}</Tag>
+              <label className="text-sm text-gray-500 mb-1 block">业务员 *</label>
+              {readOnly ? (
+                <span>{form.agent_name || '-'}</span>
+              ) : (
+                <Select
+                  className="w-full"
+                  placeholder={form.brand_id ? '选择业务员' : '请先选择品牌'}
+                  disabled={!form.brand_id || brandAgents.length === 0}
+                  value={form.agent_name || undefined}
+                  onChange={handleAgentChange}
+                  options={brandAgents.map((a) => ({ value: a.name, label: a.name }))}
+                />
+              )}
             </div>
           </FieldPermission>
 
@@ -239,7 +304,6 @@ export default function QuotationForm() {
                       setForm((prev) => ({
                         ...prev,
                         quote_date: d.format('YYYY-MM-DD'),
-                        valid_until: calcValidUntil(d).format('YYYY-MM-DD'),
                       }));
                     }
                   }}
@@ -248,14 +312,33 @@ export default function QuotationForm() {
             </div>
           </FieldPermission>
 
-          <FieldPermission fieldCode="quotation.valid_until">
+          <FieldPermission fieldCode="quotation.fabric_delivery_date">
             <div>
-              <label className="text-sm text-gray-500 mb-1 block">有效期至</label>
-              {readOnly ? <span>{form.valid_until}</span> : (
+              <label className="text-sm text-gray-500 mb-1 block">面料交期</label>
+              {readOnly ? <span>{form.fabric_delivery_date || '—'}</span> : (
                 <DatePicker
                   className="w-full"
-                  value={form.valid_until ? dayjs(form.valid_until) : undefined}
-                  onChange={(d) => d && setForm((prev) => ({ ...prev, valid_until: d.format('YYYY-MM-DD') }))}
+                  value={form.fabric_delivery_date ? dayjs(form.fabric_delivery_date) : undefined}
+                  onChange={(d) => setForm((prev) => ({
+                    ...prev,
+                    fabric_delivery_date: d ? d.format('YYYY-MM-DD') : undefined,
+                  }))}
+                />
+              )}
+            </div>
+          </FieldPermission>
+
+          <FieldPermission fieldCode="quotation.garment_delivery_date">
+            <div>
+              <label className="text-sm text-gray-500 mb-1 block">成衣交期</label>
+              {readOnly ? <span>{form.garment_delivery_date || '—'}</span> : (
+                <DatePicker
+                  className="w-full"
+                  value={form.garment_delivery_date ? dayjs(form.garment_delivery_date) : undefined}
+                  onChange={(d) => setForm((prev) => ({
+                    ...prev,
+                    garment_delivery_date: d ? d.format('YYYY-MM-DD') : undefined,
+                  }))}
                 />
               )}
             </div>
@@ -277,14 +360,14 @@ export default function QuotationForm() {
           <FieldPermission fieldCode="quotation.exchange_rate">
             <div>
               <label className="text-sm text-gray-500 mb-1 block">汇率 (USD→RMB)</label>
-              {readOnly ? <span>{form.exchange_rate}</span> : (
+              {readOnly ? <span>{roundRate(form.exchange_rate).toFixed(2)}</span> : (
                 <InputNumber
                   className="w-full"
                   value={form.exchange_rate}
-                  onChange={(v) => setForm((prev) => ({ ...prev, exchange_rate: v || exchangeRate }))}
+                  onChange={(v) => setForm((prev) => ({ ...prev, exchange_rate: roundRate(v, exchangeRate) }))}
                   min={0}
-                  step={0.0001}
-                  precision={4}
+                  step={0.01}
+                  precision={2}
                 />
               )}
             </div>
@@ -300,6 +383,70 @@ export default function QuotationForm() {
                   onChange={(v) => setForm((prev) => ({ ...prev, profit_margin: v ?? 5 }))}
                   min={0}
                   max={100}
+                />
+              )}
+            </div>
+          </FieldPermission>
+
+          <FieldPermission fieldCode="quotation.target_labor_price">
+            <div>
+              <label className="text-sm text-gray-500 mb-1 block">目标工价</label>
+              {readOnly ? <span>{formatOptionalPrice(form.target_labor_price)}</span> : (
+                <InputNumber
+                  className="w-full"
+                  value={form.target_labor_price}
+                  onChange={(v) => setForm((prev) => ({ ...prev, target_labor_price: v ?? undefined }))}
+                  min={0}
+                  step={0.01}
+                  precision={2}
+                />
+              )}
+            </div>
+          </FieldPermission>
+
+          <FieldPermission fieldCode="quotation.target_garment_price">
+            <div>
+              <label className="text-sm text-gray-500 mb-1 block">目标成衣价格</label>
+              {readOnly ? <span>{formatOptionalPrice(form.target_garment_price)}</span> : (
+                <InputNumber
+                  className="w-full"
+                  value={form.target_garment_price}
+                  onChange={(v) => setForm((prev) => ({ ...prev, target_garment_price: v ?? undefined }))}
+                  min={0}
+                  step={0.01}
+                  precision={2}
+                />
+              )}
+            </div>
+          </FieldPermission>
+
+          <FieldPermission fieldCode="quotation.confirmed_labor_price">
+            <div>
+              <label className="text-sm text-gray-500 mb-1 block">确认工价</label>
+              {readOnly ? <span>{formatOptionalPrice(form.confirmed_labor_price)}</span> : (
+                <InputNumber
+                  className="w-full"
+                  value={form.confirmed_labor_price}
+                  onChange={(v) => setForm((prev) => ({ ...prev, confirmed_labor_price: v ?? undefined }))}
+                  min={0}
+                  step={0.01}
+                  precision={2}
+                />
+              )}
+            </div>
+          </FieldPermission>
+
+          <FieldPermission fieldCode="quotation.confirmed_garment_price">
+            <div>
+              <label className="text-sm text-gray-500 mb-1 block">确认成衣价格</label>
+              {readOnly ? <span>{formatOptionalPrice(form.confirmed_garment_price)}</span> : (
+                <InputNumber
+                  className="w-full"
+                  value={form.confirmed_garment_price}
+                  onChange={(v) => setForm((prev) => ({ ...prev, confirmed_garment_price: v ?? undefined }))}
+                  min={0}
+                  step={0.01}
+                  precision={2}
                 />
               )}
             </div>
@@ -325,12 +472,31 @@ export default function QuotationForm() {
           </FieldPermission>
         </div>
 
-        <div className="mt-4">
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <FieldPermission fieldCode="quotation.style_image">
+            <div>
+              <label className="text-sm text-gray-500 mb-1 block">款式图</label>
+              <StyleImageUpload
+                value={form.style_image}
+                onChange={(path) => setForm((prev) => ({ ...prev, style_image: path }))}
+                readOnly={readOnly}
+              />
+            </div>
+          </FieldPermission>
+
           <FieldPermission fieldCode="quotation.remarks">
-            <label className="text-sm text-gray-500 mb-1 block">备注</label>
-            {readOnly ? <p className="text-gray-700">{form.remarks}</p> : (
-              <Input.TextArea rows={2} value={form.remarks} onChange={(e) => setForm((prev) => ({ ...prev, remarks: e.target.value }))} />
-            )}
+            <div>
+              <label className="text-sm text-gray-500 mb-1 block">备注</label>
+              {readOnly ? <p className="text-gray-700">{form.remarks || '—'}</p> : (
+                <Input.TextArea
+                  rows={3}
+                  value={form.remarks}
+                  placeholder={REMARKS_PLACEHOLDER}
+                  onChange={(e) => setForm((prev) => ({ ...prev, remarks: e.target.value }))}
+                  className="placeholder:text-gray-400"
+                />
+              )}
+            </div>
           </FieldPermission>
         </div>
       </div>
@@ -352,6 +518,8 @@ export default function QuotationForm() {
           profitMargin={form.profit_margin}
           fabricOptions={fabricOptions}
           accessoryOptions={accessoryOptions}
+          defaultWastage={agentDefaultWastage}
+          optionsReady={optionsReady}
           onChange={(updated) => updateItem(index, updated)}
           onRemove={() => removeItem(index)}
           readOnly={readOnly}

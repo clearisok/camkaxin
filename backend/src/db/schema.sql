@@ -1,22 +1,23 @@
 -- 柬凯报价模块数据库 Schema
 
--- 业务员
-CREATE TABLE IF NOT EXISTS agents (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(100) NOT NULL,
-  status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
 -- 品牌
 CREATE TABLE IF NOT EXISTS brands (
   id SERIAL PRIMARY KEY,
   name VARCHAR(100) NOT NULL UNIQUE,
-  agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
   status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
   last_used_at TIMESTAMPTZ,
   use_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 业务员（每个业务员仅归属一个品牌）
+CREATE TABLE IF NOT EXISTS agents (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  brand_id INTEGER REFERENCES brands(id) ON DELETE SET NULL,
+  status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+  default_wastage INTEGER DEFAULT 5,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS fabric_library (
   net_width DECIMAL(10,2),
   unit VARCHAR(10) DEFAULT 'meter' CHECK (unit IN ('meter', 'kg')),
   reference_price DECIMAL(10,2) DEFAULT 0,
+  default_wastage INTEGER DEFAULT 5,
   status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
   last_used_at TIMESTAMPTZ,
   use_count INTEGER DEFAULT 0,
@@ -42,6 +44,7 @@ CREATE TABLE IF NOT EXISTS accessory_library (
   id SERIAL PRIMARY KEY,
   name VARCHAR(200) NOT NULL,
   reference_price DECIMAL(10,2) DEFAULT 0,
+  specification VARCHAR(500),
   status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
   last_used_at TIMESTAMPTZ,
   use_count INTEGER DEFAULT 0,
@@ -87,9 +90,15 @@ CREATE TABLE IF NOT EXISTS quotations (
   currency VARCHAR(10) DEFAULT 'RMB' CHECK (currency IN ('RMB', 'USD')),
   exchange_rate DECIMAL(10,4) DEFAULT 6.8000,
   quote_date DATE NOT NULL DEFAULT CURRENT_DATE,
-  valid_until DATE,
+  fabric_delivery_date DATE,
+  garment_delivery_date DATE,
+  target_labor_price DECIMAL(10,2),
+  target_garment_price DECIMAL(10,2),
+  confirmed_labor_price DECIMAL(10,2),
+  confirmed_garment_price DECIMAL(10,2),
   profit_margin INTEGER DEFAULT 5,
   remarks TEXT,
+  style_image VARCHAR(500),
   status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'sent', 'confirmed', 'expired')),
   created_by VARCHAR(100) DEFAULT 'system',
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -153,6 +162,7 @@ CREATE TABLE IF NOT EXISTS item_accessories (
   item_id INTEGER NOT NULL REFERENCES quotation_items(id) ON DELETE CASCADE,
   accessory_id INTEGER REFERENCES accessory_library(id) ON DELETE SET NULL,
   name VARCHAR(200),
+  specification VARCHAR(500),
   consumption DECIMAL(10,2) DEFAULT 1,
   wastage INTEGER DEFAULT 5,
   unit_price DECIMAL(10,2) DEFAULT 0,

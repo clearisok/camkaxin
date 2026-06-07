@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Table, Button, Modal, Form, Input, Select, message, Popconfirm, InputNumber } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
-import { getBrands, getAgents, createBrand, updateBrand, deleteBrand, getBrandDefaultAccessories, updateBrandDefaultAccessories } from '@/api';
-import type { Brand, Agent, Accessory } from '@/types';
+import { getBrands, createBrand, updateBrand, deleteBrand, getBrandDefaultAccessories, updateBrandDefaultAccessories } from '@/api';
+import type { Brand, Accessory } from '@/types';
+import PageHeader from '@/components/PageHeader';
 
 export default function BrandManage() {
   const [data, setData] = useState<Brand[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [accModalOpen, setAccModalOpen] = useState(false);
@@ -17,9 +17,8 @@ export default function BrandManage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [b, a] = await Promise.all([getBrands(), getAgents()]);
+      const b = await getBrands();
       setData(b.data || []);
-      setAgents(a.data || []);
     } catch (err) {
       message.error(String(err));
     } finally {
@@ -48,6 +47,15 @@ export default function BrandManage() {
     }
   };
 
+  const openEdit = (record: Brand) => {
+    setEditing(record);
+    form.setFieldsValue({
+      name: record.name,
+      status: record.status,
+    });
+    setModalOpen(true);
+  };
+
   const openAccModal = async (brand: Brand) => {
     setEditing(brand);
     try {
@@ -72,7 +80,11 @@ export default function BrandManage() {
 
   const columns = [
     { title: '品牌名称', dataIndex: 'name' },
-    { title: '业务员', dataIndex: 'agent_name_ref', width: 120 },
+    {
+      title: '业务员', width: 200,
+      render: (_: unknown, record: Brand) =>
+        (record.agents || []).map((a) => a.name).join('、') || '-',
+    },
     { title: '使用次数', dataIndex: 'use_count', width: 100 },
     {
       title: '状态', dataIndex: 'status', width: 80,
@@ -82,7 +94,7 @@ export default function BrandManage() {
       title: '操作', width: 240,
       render: (_: unknown, record: Brand) => (
         <>
-          <Button type="link" size="small" onClick={() => { setEditing(record); form.setFieldsValue(record); setModalOpen(true); }}>编辑</Button>
+          <Button type="link" size="small" onClick={() => openEdit(record)}>编辑</Button>
           <Button type="link" size="small" onClick={() => openAccModal(record)}>基础辅料</Button>
           <Popconfirm title="确定删除？" onConfirm={async () => { await deleteBrand(record.id); message.success('已删除'); load(); }}>
             <Button type="link" size="small" danger>删除</Button>
@@ -94,10 +106,15 @@ export default function BrandManage() {
 
   return (
     <div className="page-container">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">品牌管理</h1>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModalOpen(true); }}>新增品牌</Button>
-      </div>
+      <PageHeader
+        title="品牌管理"
+        description="业务员归属请在「业务员管理」中配置，同一品牌可有多个业务员"
+        extra={(
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModalOpen(true); }}>
+            新增品牌
+          </Button>
+        )}
+      />
       <div className="card-panel">
         <Table rowKey="id" columns={columns} dataSource={data} loading={loading} pagination={false} />
       </div>
@@ -105,9 +122,6 @@ export default function BrandManage() {
       <Modal title={editing ? '编辑品牌' : '新增品牌'} open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)}>
         <Form form={form} layout="vertical" initialValues={{ status: 'active' }}>
           <Form.Item name="name" label="品牌名称" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="agent_id" label="关联业务员">
-            <Select allowClear options={agents.map((a) => ({ value: a.id, label: a.name }))} />
-          </Form.Item>
           <Form.Item name="status" label="状态">
             <Select options={[{ value: 'active', label: '启用' }, { value: 'inactive', label: '停用' }]} />
           </Form.Item>

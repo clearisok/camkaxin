@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, InputNumber, Button, Upload, Table, message, Popconfirm, Divider } from 'antd';
 import { UploadOutlined, DeleteOutlined } from '@ant-design/icons';
 import { getSettings, updateExchangeRate, getTemplates, uploadTemplate, deleteTemplate } from '@/api';
+import PageHeader from '@/components/PageHeader';
 
 export default function SystemSettings() {
   const [rate, setRate] = useState(6.8);
@@ -11,7 +12,7 @@ export default function SystemSettings() {
   const load = async () => {
     try {
       const [s, t] = await Promise.all([getSettings(), getTemplates()]);
-      setRate(parseFloat(s.data?.usd_to_rmb_rate || '6.8'));
+      setRate(Math.round(parseFloat(s.data?.usd_to_rmb_rate || '6.8') * 100) / 100);
       setTemplates(t.data || []);
     } catch { /* ignore */ }
   };
@@ -65,17 +66,17 @@ export default function SystemSettings() {
 
   return (
     <div className="page-container">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">系统设置</h1>
+      <PageHeader title="系统设置" />
 
       <Card title="全局汇率设置" className="card-panel mb-6">
-        <p className="text-gray-500 text-sm mb-4">USD to RMB 汇率，保留4位小数，默认 6.8000</p>
+        <p className="text-gray-500 text-sm mb-4">USD to RMB 汇率，保留 2 位小数</p>
         <div className="flex items-center gap-4">
           <InputNumber
             value={rate}
-            onChange={(v) => setRate(v || 6.8)}
+            onChange={(v) => setRate(Math.round((v || 6.8) * 100) / 100)}
             min={0}
-            step={0.0001}
-            precision={4}
+            step={0.01}
+            precision={2}
             style={{ width: 200 }}
             addonBefore="1 USD ="
             addonAfter="RMB"

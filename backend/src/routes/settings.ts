@@ -108,7 +108,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 
 router.post('/export-excel', async (req: Request, res: Response) => {
   try {
-    const { quotation_id, template_id, split_by_item = false } = req.body;
+    const { quotation_id, template_id, split_by_item = false, filename: customFilename } = req.body;
 
     let templatePath: string;
     if (template_id) {
@@ -122,15 +122,50 @@ router.post('/export-excel', async (req: Request, res: Response) => {
     }
 
     const { buildExportData } = await import('../services/quotationService.js');
+    const { exportQuotationToExcel, buildQuotationExportFilename } = await import('../services/excelExport.js');
     const exportData = await buildExportData(quotation_id);
 
     const buffer = await exportQuotationToExcel(templatePath, exportData as Parameters<typeof exportQuotationToExcel>[1], {
       splitByItem: split_by_item,
     });
 
+    const fname = buildQuotationExportFilename(exportData as Parameters<typeof buildQuotationExportFilename>[0], customFilename);
+    const encoded = encodeURIComponent(fname);
+
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${exportData.quotation_no || 'quotation'}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encoded}`);
     res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+router.post('/export-summary', async (req: Request, res: Response) => {
+  try {
+    const { quotation_ids } = req.body as { quotation_ids: number[] };
+    if (!quotation_ids?.length) {
+      return res.status(400).json({ error: '请选择至少一个报价单' });
+    }
+
+    const { exportSummaryExcel, buildSummaryFilename } = await import('../services/summaryExport.js');
+    const buffer = await exportSummaryExcel(quotation_ids);
+    const fname = buildSummaryFilename();
+    const encoded = encodeURIComponent(fname);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encoded}`);
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+router.get('/export-filename/:quotationId', async (req: Request, res: Response) => {
+  try {
+    const { buildExportData } = await import('../services/quotationService.js');
+    const { buildQuotationExportFilename } = await import('../services/excelExport.js');
+    const exportData = await buildExportData(Number(req.params.quotationId));
+    res.json({ filename: buildQuotationExportFilename(exportData as Parameters<typeof buildQuotationExportFilename>[0]) });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

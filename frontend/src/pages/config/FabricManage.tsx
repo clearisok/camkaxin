@@ -4,6 +4,7 @@ import { PlusOutlined } from '@ant-design/icons';
 import { getAllFabrics, createFabric, updateFabric, deleteFabric } from '@/api';
 import { calcGrossWidth } from '@/utils/calculation';
 import type { Fabric } from '@/types';
+import PageHeader from '@/components/PageHeader';
 
 export default function FabricManage() {
   const [data, setData] = useState<Fabric[]>([]);
@@ -60,6 +61,7 @@ export default function FabricManage() {
       render: (u: string) => u === 'kg' ? '千克' : '米',
     },
     { title: '参考单价', dataIndex: 'reference_price', width: 100 },
+    { title: '默认损耗%', dataIndex: 'default_wastage', width: 100, render: (v: number) => v ?? 5 },
     { title: '使用次数', dataIndex: 'use_count', width: 90 },
     {
       title: '状态', dataIndex: 'status', width: 80,
@@ -80,27 +82,29 @@ export default function FabricManage() {
 
   return (
     <div className="page-container">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">面料库</h1>
-          <p className="text-gray-500 text-sm mt-1">报价时使用的面料自动沉淀到此库</p>
-        </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModalOpen(true); }}>新增面料</Button>
-      </div>
+      <PageHeader
+        title="面料库"
+        description="报价时使用的面料自动沉淀到此库"
+        extra={(
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModalOpen(true); }}>
+            新增面料
+          </Button>
+        )}
+      />
       <div className="card-panel">
         <Table rowKey="id" columns={columns} dataSource={data} loading={loading} scroll={{ x: 1000 }} />
       </div>
 
       <Modal title={editing ? '编辑面料' : '新增面料'} open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)} width={560}>
-        <Form form={form} layout="vertical" initialValues={{ unit: 'meter', status: 'active' }}>
+        <Form form={form} layout="vertical" initialValues={{ unit: 'meter', status: 'active', default_wastage: 5 }}>
           <Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="composition" label="成分"><Input /></Form.Item>
           <div className="grid grid-cols-2 gap-4">
             <Form.Item name="weight" label="克重 (g/m²)"><InputNumber className="w-full" min={0} /></Form.Item>
-            <Form.Item name="net_width" label="净门幅 (cm)"><InputNumber className="w-full" min={0} /></Form.Item>
+            <Form.Item name="net_width" label="净门幅 (厘米)"><InputNumber className="w-full" min={0} /></Form.Item>
           </div>
           {netWidth != null && (
-            <p className="text-sm text-gray-500 -mt-2 mb-4">毛门幅（自动计算）: {calcGrossWidth(netWidth)} cm</p>
+            <p className="text-sm text-gray-500 -mt-2 mb-4">毛门幅（自动计算）: {calcGrossWidth(netWidth)} 厘米</p>
           )}
           <div className="grid grid-cols-2 gap-4">
             <Form.Item name="unit" label="单位">
@@ -108,6 +112,9 @@ export default function FabricManage() {
             </Form.Item>
             <Form.Item name="reference_price" label="参考单价"><InputNumber className="w-full" min={0} step={0.01} /></Form.Item>
           </div>
+          <Form.Item name="default_wastage" label="默认损耗 (%)">
+            <InputNumber className="w-full" min={0} max={100} />
+          </Form.Item>
           <Form.Item name="status" label="状态">
             <Select options={[{ value: 'active', label: '启用' }, { value: 'inactive', label: '停用' }]} />
           </Form.Item>
