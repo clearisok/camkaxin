@@ -8,6 +8,7 @@ import BrandManage from './pages/config/BrandManage';
 import FabricManage from './pages/config/FabricManage';
 import AccessoryManage from './pages/config/AccessoryManage';
 import SystemSettings from './pages/config/SystemSettings';
+import SchedulingModule from './pages/scheduling/SchedulingModule';
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
           <Route path="quotations/new" element={<QuotationForm />} />
           <Route path="quotations/:id" element={<QuotationForm />} />
           <Route path="quotations/:id/edit" element={<QuotationForm />} />
+          <Route path="scheduling" element={<SchedulingModule />} />
           <Route path="config/agents" element={<AgentManage />} />
           <Route path="config/brands" element={<BrandManage />} />
           <Route path="config/fabrics" element={<FabricManage />} />

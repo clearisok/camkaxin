@@ -85,6 +85,9 @@ router.get('/', async (req: Request, res: Response) => {
       _field_meta: QUOTATION_FIELDS,
     });
   } catch (err) {
+    // #region agent log
+    import('../utils/debugLog.js').then(({ debugLog }) => debugLog('quotations.ts:GET/', 'quotations list failed', { error: String(err), code: (err as { code?: string }).code }, 'H4')).catch(() => {});
+    // #endregion
     res.status(500).json({ error: String(err) });
   }
 });

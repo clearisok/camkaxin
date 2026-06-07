@@ -10,12 +10,17 @@ api.interceptors.response.use(
   (err) => {
     const e = err as Error & { code?: string; response?: { status?: number; data?: { error?: string } }; config?: { url?: string } };
     // #region agent log
-    fetch('http://127.0.0.1:7866/ingest/949bb3a4-1e98-433b-8c2f-5ab46646876f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f51ef'},body:JSON.stringify({sessionId:'6f51ef',location:'api/index.ts:interceptor',message:'API request failed',data:{message:e.message,name:e.name,code:(err as {code?:string}).code,status:err.response?.status,responseError:err.response?.data?.error,url:err.config?.url},timestamp:Date.now(),hypothesisId:'D',runId:'pre-fix'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7866/ingest/949bb3a4-1e98-433b-8c2f-5ab46646876f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f51ef'},body:JSON.stringify({sessionId:'6f51ef',location:'api/index.ts:interceptor',message:'API request failed',data:{message:e.message,name:e.name,code:(err as {code?:string}).code,status:err.response?.status,responseError:err.response?.data?.error,responseData:err.response?.data,url:err.config?.url,method:err.config?.method},timestamp:Date.now(),hypothesisId:'H-D',runId:'pre-fix'})}).catch(()=>{});
     // #endregion
     if (!err.response && (e.code === 'ERR_NETWORK' || e.message === 'Network Error')) {
       return Promise.reject(new Error('无法连接后端服务，请确认已运行 npm run dev'));
     }
-    const raw = err.response?.data?.error || err.message || '请求失败';
+    const raw = err.response?.data?.error
+      || (err.response?.status === 500 && !err.response?.data?.error
+        ? '后端服务异常（可能已崩溃），请确认 PostgreSQL 已启动并重启 npm run dev'
+        : undefined)
+      || err.message
+      || '请求失败';
     const message = typeof raw === 'string' ? raw.replace(/^Error:\s*/i, '') : String(raw);
     return Promise.reject(new Error(message));
   }

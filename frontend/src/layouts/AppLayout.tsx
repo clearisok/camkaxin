@@ -12,6 +12,7 @@ import {
   DollarOutlined,
   HomeOutlined,
   AppstoreOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons';
 
 const { Sider, Header, Content } = Layout;
@@ -25,12 +26,14 @@ const NAV_KEYS = [
   '/config/brands',
   '/config/agents',
   '/quotations',
+  '/scheduling',
   '/',
 ] as const;
 
 const menuItems: MenuProps['items'] = [
   { key: '/', icon: <HomeOutlined />, label: '工作台' },
   { key: '/quotations', icon: <FileTextOutlined />, label: '报价单管理' },
+  { key: '/scheduling', icon: <CalendarOutlined />, label: '预警排单' },
   { type: 'divider' },
   {
     key: CONFIG_OPEN_KEY,

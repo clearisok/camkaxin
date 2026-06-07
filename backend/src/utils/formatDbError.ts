@@ -11,6 +11,9 @@ export function formatDbError(err: unknown): string {
   if (e.code === 'ECONNREFUSED' || e.message?.includes('ECONNREFUSED')) {
     return '数据库连接失败：PostgreSQL 未启动，请在项目根目录运行 docker compose up -d';
   }
+  if (e.code === '57P01' || e.message?.includes('terminating connection')) {
+    return '数据库连接已断开（可能正在重启），请稍后重试或重启后端 npm run dev';
+  }
   if (e.code === '42P01') {
     return `数据库表不存在，请运行 npm run db:migrate：${e.message}`;
   }

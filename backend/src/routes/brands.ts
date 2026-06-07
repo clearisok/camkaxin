@@ -43,6 +43,9 @@ router.get('/', async (_req: Request, res: Response) => {
       _field_meta: BRAND_FIELDS,
     });
   } catch (err) {
+    // #region agent log
+    import('../utils/debugLog.js').then(({ debugLog }) => debugLog('brands.ts:GET/', 'brands list failed', { error: String(err), code: (err as { code?: string }).code }, 'H1')).catch(() => {});
+    // #endregion
     res.status(500).json({ error: String(err) });
   }
 });

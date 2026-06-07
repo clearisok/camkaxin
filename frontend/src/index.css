@@ -183,3 +183,15 @@ body.table-col-resizing * {
 .quotation-list-table .quotation-list-actions .ant-btn {
   padding-inline: 4px;
 }
+
+.unscheduled-warning > td {
+  background-color: #fef9c3 !important;
+}
+
+.unscheduled-warning:hover > td {
+  background-color: #fef08a !important;
+}
+
+.row-dirty > td {
+  background-color: #eff6ff !important;
+}

@@ -11,6 +11,19 @@ export const pool = new Pool({
     'postgresql://jiankai:jiankai123@localhost:5432/jiankai_quotation',
 });
 
+// Prevent Node process crash when idle clients lose connection (e.g. Docker PG restart)
+pool.on('error', (err) => {
+  // #region agent log
+  void import('../utils/debugLog.js').then(({ debugLog }) => {
+    debugLog('database.ts:pool', 'Idle pool client error (handled)', {
+      code: (err as NodeJS.ErrnoException & { code?: string }).code,
+      message: err.message,
+    }, 'H1');
+  });
+  // #endregion
+  console.error('PostgreSQL pool idle client error:', err.message);
+});
+
 export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
   text: string,
   params?: unknown[]

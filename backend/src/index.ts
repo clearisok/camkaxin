@@ -11,6 +11,7 @@ import fabricsRouter from './routes/fabrics.js';
 import accessoriesRouter from './routes/accessories.js';
 import settingsRouter from './routes/settings.js';
 import quotationsRouter from './routes/quotations.js';
+import stylesRouter from './routes/styles.js';
 
 dotenv.config();
 
@@ -47,6 +48,7 @@ app.use('/api/fabrics', fabricsRouter);
 app.use('/api/accessories', accessoriesRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/quotations', quotationsRouter);
+app.use('/api/styles', stylesRouter);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err.stack);
