@@ -6,7 +6,7 @@ import {
   COLUMN_WIDTH_MAX,
   COLUMN_WIDTH_MIN,
   clampColumnWidth,
-  normalizeColumnPreferences,
+  normalizeColumnPreferencesForDefs,
   saveColumnPreferences,
 } from '@/utils/quotationListColumnPrefs';
 
@@ -14,9 +14,11 @@ interface TableColumnSettingsProps {
   columns: ColumnPrefItem[];
   value: ColumnPreferences;
   onChange: (prefs: ColumnPreferences) => void;
+  /** 传入则写入对应存储；不传则沿用报价单列表的 localStorage */
+  onPersist?: (prefs: ColumnPreferences) => void;
 }
 
-export default function TableColumnSettings({ columns, value, onChange }: TableColumnSettingsProps) {
+export default function TableColumnSettings({ columns, value, onChange, onPersist }: TableColumnSettingsProps) {
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -26,9 +28,13 @@ export default function TableColumnSettings({ columns, value, onChange }: TableC
   }, [columns, value.order]);
 
   const apply = (next: ColumnPreferences) => {
-    const normalized = normalizeColumnPreferences(next);
+    const normalized = normalizeColumnPreferencesForDefs(next, columns);
     onChange(normalized);
-    saveColumnPreferences(normalized);
+    if (onPersist) {
+      onPersist(normalized);
+    } else {
+      saveColumnPreferences(normalized);
+    }
   };
 
   const toggleVisible = (key: string, checked: boolean) => {
@@ -57,7 +63,7 @@ export default function TableColumnSettings({ columns, value, onChange }: TableC
   };
 
   const reset = () => {
-    apply(normalizeColumnPreferences(null));
+    apply(normalizeColumnPreferencesForDefs(null, columns));
   };
 
   const content = (

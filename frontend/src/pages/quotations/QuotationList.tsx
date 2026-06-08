@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Table, Button, Input, Select, Space, message, Popconfirm, Modal, Checkbox, Input as AntInput } from 'antd';
 import { PlusOutlined, FileExcelOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import PageHeader from '@/components/PageHeader';
 import TableColumnSettings from '@/components/TableColumnSettings';
 import ResizableTableHeader from '@/components/ResizableTableHeader';
 import {
@@ -225,24 +224,6 @@ export default function QuotationList() {
 
   return (
     <div className="page-container">
-      <PageHeader
-        title="报价单管理"
-        extra={(
-          <>
-            <Button
-              icon={<FileExcelOutlined />}
-              disabled={selectedRowKeys.length === 0}
-              onClick={handleSummaryExport}
-            >
-              导出汇总 {selectedRowKeys.length > 0 && `(${selectedRowKeys.length})`}
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/quotations/new')}>
-              新建报价单
-            </Button>
-          </>
-        )}
-      />
-
       <div className="card-panel mb-4">
         <Space wrap className="w-full justify-between">
           <Space wrap>
@@ -285,11 +266,23 @@ export default function QuotationList() {
               options={Object.entries(statusMap).map(([k, v]) => ({ value: k, label: v.text }))}
             />
           </Space>
-          <TableColumnSettings
-            columns={QUOTATION_LIST_COLUMN_DEFS}
-            value={columnPrefs}
-            onChange={setColumnPrefs}
-          />
+          <Space wrap>
+            <Button
+              icon={<FileExcelOutlined />}
+              disabled={selectedRowKeys.length === 0}
+              onClick={handleSummaryExport}
+            >
+              导出汇总 {selectedRowKeys.length > 0 && `(${selectedRowKeys.length})`}
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/quotations/new')}>
+              新建报价单
+            </Button>
+            <TableColumnSettings
+              columns={QUOTATION_LIST_COLUMN_DEFS}
+              value={columnPrefs}
+              onChange={setColumnPrefs}
+            />
+          </Space>
         </Space>
       </div>
 

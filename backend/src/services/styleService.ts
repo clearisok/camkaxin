@@ -8,10 +8,20 @@ import {
 export interface StyleListQuery {
   view?: 'early_warning' | 'scheduling' | 'closing';
   closing_month?: string;
+  brand?: string;
+  salesperson?: string;
   group?: string;
   unscheduled_only?: boolean;
   search?: string;
+  sort_by?: string;
+  sort_order?: 'asc' | 'desc';
 }
+
+const STYLE_SORTABLE_FIELDS = new Set([
+  'style_number', 'brand', 'quantity', 'style_name', 'salesperson', 'po_number',
+  'closing_month', 'required_shipping_date', 'processing_unit_price', 'sales_price',
+  'processing_output_value', 'sales_output_value', 'created_at', 'updated_at',
+]);
 
 function normalizeValue(key: string, value: unknown): unknown {
   if (value === undefined) return undefined;
@@ -67,6 +77,14 @@ export async function listStyles(params: StyleListQuery) {
     where += ` AND closing_month = $${idx++}`;
     values.push(params.closing_month);
   }
+  if (params.brand) {
+    where += ` AND brand = $${idx++}`;
+    values.push(params.brand);
+  }
+  if (params.salesperson) {
+    where += ` AND salesperson = $${idx++}`;
+    values.push(params.salesperson);
+  }
   if (params.group) {
     where += ` AND group_name = $${idx++}`;
     values.push(params.group);
@@ -84,10 +102,15 @@ export async function listStyles(params: StyleListQuery) {
   }
 
   let orderBy = 'ORDER BY created_at DESC';
-  if (params.view === 'scheduling') {
+  if (params.sort_by && STYLE_SORTABLE_FIELDS.has(params.sort_by)) {
+    const dir = params.sort_order === 'desc' ? 'DESC' : 'ASC';
+    orderBy = `ORDER BY ${params.sort_by} ${dir} NULLS LAST, id ASC`;
+  } else if (params.view === 'scheduling') {
     orderBy = 'ORDER BY group_name ASC, online_time ASC NULLS LAST, offline_time ASC NULLS LAST';
   } else if (params.view === 'closing') {
     orderBy = 'ORDER BY closing_month ASC NULLS LAST, style_number ASC';
+  } else if (params.view === 'early_warning') {
+    orderBy = 'ORDER BY required_shipping_date ASC NULLS LAST, style_number ASC';
   }
 
   const result = await query(`SELECT * FROM styles ${where} ${orderBy}`, values);
@@ -97,6 +120,23 @@ export async function listStyles(params: StyleListQuery) {
 export async function getStyleById(id: number) {
   const result = await query('SELECT * FROM styles WHERE id = $1', [id]);
   if (!result.rows[0]) return null;
+  return enrichStyle(result.rows[0] as StyleRow);
+}
+
+export async function createStyle(data: Record<string, unknown>) {
+  const updates = pickUpdates(data);
+  if (!updates.style_number) {
+    throw new Error('款号必填');
+  }
+
+  const keys = Object.keys(updates);
+  const values = keys.map((k) => updates[k]);
+  const placeholders = keys.map((_, i) => `$${i + 1}`);
+
+  const result = await query(
+    `INSERT INTO styles (${keys.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`,
+    values
+  );
   return enrichStyle(result.rows[0] as StyleRow);
 }
 

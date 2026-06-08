@@ -129,13 +129,20 @@ export default function BrandManage() {
       </Modal>
 
       <Modal title={`${editing?.name} - 基础辅料`} open={accModalOpen} onOk={saveDefaultAccs} onCancel={() => setAccModalOpen(false)} width={700}>
+        <div className="grid grid-cols-[1fr_88px_88px_96px_48px] gap-2 items-center mb-2 pb-2 border-b border-gray-100">
+          <span className="text-sm font-medium text-gray-600">名称</span>
+          <span className="text-sm font-medium text-gray-600">单耗</span>
+          <span className="text-sm font-medium text-gray-600">损耗%</span>
+          <span className="text-sm font-medium text-gray-600">单价</span>
+          <span className="text-sm font-medium text-gray-600 text-center">操作</span>
+        </div>
         {defaultAccs.map((acc, i) => (
-          <div key={i} className="flex gap-2 mb-2">
+          <div key={i} className="grid grid-cols-[1fr_88px_88px_96px_48px] gap-2 items-center mb-2">
             <Input placeholder="名称" value={acc.name} onChange={(e) => { const a = [...defaultAccs]; a[i] = { ...a[i], name: e.target.value }; setDefaultAccs(a); }} />
-            <InputNumber placeholder="单耗" value={acc.consumption} onChange={(v) => { const a = [...defaultAccs]; a[i] = { ...a[i], consumption: v ?? 1 }; setDefaultAccs(a); }} />
-            <InputNumber placeholder="损耗%" value={acc.wastage} onChange={(v) => { const a = [...defaultAccs]; a[i] = { ...a[i], wastage: v ?? 5 }; setDefaultAccs(a); }} />
-            <InputNumber placeholder="单价" value={acc.unit_price} onChange={(v) => { const a = [...defaultAccs]; a[i] = { ...a[i], unit_price: v ?? 0 }; setDefaultAccs(a); }} />
-            <Button danger type="text" onClick={() => setDefaultAccs(defaultAccs.filter((_, j) => j !== i))}>删</Button>
+            <InputNumber className="w-full" placeholder="单耗" value={acc.consumption} onChange={(v) => { const a = [...defaultAccs]; a[i] = { ...a[i], consumption: v ?? 1 }; setDefaultAccs(a); }} />
+            <InputNumber className="w-full" placeholder="损耗%" value={acc.wastage} onChange={(v) => { const a = [...defaultAccs]; a[i] = { ...a[i], wastage: v ?? 5 }; setDefaultAccs(a); }} />
+            <InputNumber className="w-full" placeholder="单价" value={acc.unit_price} onChange={(v) => { const a = [...defaultAccs]; a[i] = { ...a[i], unit_price: v ?? 0 }; setDefaultAccs(a); }} />
+            <Button danger type="text" className="!px-0" onClick={() => setDefaultAccs(defaultAccs.filter((_, j) => j !== i))}>删</Button>
           </div>
         ))}
         <Button type="dashed" block onClick={() => setDefaultAccs([...defaultAccs, { name: '', consumption: 1, wastage: 5, unit_price: 0 }])}>添加辅料</Button>

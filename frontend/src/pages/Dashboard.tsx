@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { getQuotations, getBrands, getFabrics } from '@/api';
 import PageHeader from '@/components/PageHeader';
+import BrandLogo from '@/components/BrandLogo';
+import { APP_SUBTITLE, APP_SYSTEM_NAME } from '@/constants/brand';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -27,9 +29,17 @@ export default function Dashboard() {
 
   return (
     <div className="page-container">
+      <div className="brand-hero-panel">
+        <BrandLogo variant="hero" />
+        <div className="brand-hero-panel-text">
+          <h2 className="brand-hero-panel-title">欢迎使用{APP_SYSTEM_NAME}</h2>
+          <p className="brand-hero-panel-desc">{APP_SUBTITLE}</p>
+        </div>
+      </div>
+
       <PageHeader
         title="工作台"
-        description="欢迎使用柬凯报价管理系统"
+        description="快速进入报价、排单与基础配置"
         extra={(
           <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/quotations/new')}>
             新建报价单

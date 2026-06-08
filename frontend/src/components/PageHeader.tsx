@@ -3,14 +3,17 @@ import { Button } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 
 interface PageHeaderProps {
-  title: string;
+  /** @deprecated 界面名称已全局隐藏，保留参数仅为兼容旧调用 */
+  title?: string;
   subtitle?: string;
   description?: string;
   extra?: ReactNode;
   onBack?: () => void;
 }
 
-export default function PageHeader({ title, subtitle, description, extra, onBack }: PageHeaderProps) {
+export default function PageHeader({ extra, onBack }: PageHeaderProps) {
+  if (!extra && !onBack) return null;
+
   return (
     <div className="page-header">
       <div className="flex items-center gap-3 min-w-0">
@@ -19,13 +22,6 @@ export default function PageHeader({ title, subtitle, description, extra, onBack
             返回
           </Button>
         )}
-        <div className="min-w-0">
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <h1 className="page-header-title">{title}</h1>
-            {subtitle && <span className="page-header-subtitle">{subtitle}</span>}
-          </div>
-          {description && <p className="page-header-desc">{description}</p>}
-        </div>
       </div>
       {extra && <div className="page-header-extra">{extra}</div>}
     </div>

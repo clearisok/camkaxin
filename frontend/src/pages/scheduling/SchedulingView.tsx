@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table, Input, Space, Button, message, DatePicker, InputNumber, Select, Tag, Collapse } from 'antd';
+import { Table, Input, Space, Button, message, Collapse } from 'antd';
 import { HistoryOutlined } from '@ant-design/icons';
-import dayjs from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 import TableColumnSettings from '@/components/TableColumnSettings';
 import StyleHistoryDrawer from '@/components/scheduling/StyleHistoryDrawer';
-import { getStyles, updateStyle } from '@/api/styles';
+import {
+  StyleGroupCell,
+  StyleDateCell,
+  StyleNumberCell,
+  StyleTextCell,
+  StyleShortOverCell,
+  StyleOutsourceSwitch,
+} from '@/components/scheduling/StyleInlineCells';
+import { useStyleInlineEdit } from '@/hooks/useStyleInlineEdit';
+import { getStyles } from '@/api/styles';
 import type { StyleRecord } from '@/types/style';
-import { enrichStyleClient, formatDate, formatMoney } from '@/utils/styleCalculations';
+import { enrichStyleClient, formatMoney } from '@/utils/styleCalculations';
 import {
   SCHEDULING_COLUMNS,
   SCHEDULING_STORAGE_KEY,
@@ -17,17 +25,17 @@ import {
 import type { ColumnPreferences } from '@/utils/quotationListColumnPrefs';
 import { applyViewColumnPreferences, estimateScrollX } from '@/utils/viewColumnUtils';
 
-const GROUP_OPTIONS = ['A组', 'B组', 'C组', 'D组'];
-
 export default function SchedulingView() {
   const [data, setData] = useState<StyleRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
-  const [savingId, setSavingId] = useState<number | null>(null);
   const [columnPrefs, setColumnPrefs] = useState<ColumnPreferences>(() =>
     loadViewColumnPreferences(SCHEDULING_STORAGE_KEY, SCHEDULING_COLUMNS)
   );
   const [historyStyle, setHistoryStyle] = useState<StyleRecord | null>(null);
+  const { savingId, updateLocal, saveField } = useStyleInlineEdit(setData);
+
+  const cellProps = (record: StyleRecord) => ({ record, updateLocal, saveField, savingId });
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -43,130 +51,64 @@ export default function SchedulingView() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const patchStyle = async (id: number, patch: Record<string, unknown>) => {
-    setSavingId(id);
-    try {
-      const res = await updateStyle(id, patch);
-      setData((prev) => prev.map((row) => (row.id === id ? enrichStyleClient(res.data) : row)));
-    } catch (err) {
-      message.error(String(err));
-    } finally {
-      setSavingId(null);
-    }
-  };
-
-  const updateLocal = (id: number, patch: Partial<StyleRecord>) => {
-    setData((prev) => prev.map((row) => (row.id === id ? enrichStyleClient({ ...row, ...patch }) : row)));
-  };
-
   const allColumns: ColumnsType<StyleRecord> = useMemo(() => [
     {
       title: '组别', dataIndex: 'group_name', key: 'group_name', width: 100,
-      render: (v: string, record) => (
-        <Select
-          size="small"
-          className="w-full"
-          value={v || undefined}
-          options={GROUP_OPTIONS.map((g) => ({ value: g, label: g }))}
-          onChange={(val) => {
-            updateLocal(record.id, { group_name: val });
-            patchStyle(record.id, { group_name: val });
-          }}
-          loading={savingId === record.id}
-        />
-      ),
+      render: (_: unknown, record) => <StyleGroupCell field="group_name" {...cellProps(record)} />,
     },
     {
       title: '上线时间', dataIndex: 'online_time', key: 'online_time', width: 130,
-      render: (v: string, record) => (
-        <DatePicker
-          size="small"
-          className="w-full"
-          value={v ? dayjs(v) : undefined}
-          onChange={(d) => {
-            const val = d ? d.format('YYYY-MM-DD') : undefined;
-            updateLocal(record.id, { online_time: val });
-            patchStyle(record.id, { online_time: val ?? null });
-          }}
-        />
-      ),
+      render: (_: unknown, record) => <StyleDateCell field="online_time" {...cellProps(record)} />,
     },
     {
       title: '下线时间', dataIndex: 'offline_time', key: 'offline_time', width: 130,
-      render: (v: string, record) => (
-        <DatePicker
-          size="small"
-          className="w-full"
-          value={v ? dayjs(v) : undefined}
-          onChange={(d) => {
-            const val = d ? d.format('YYYY-MM-DD') : undefined;
-            updateLocal(record.id, { offline_time: val });
-            patchStyle(record.id, { offline_time: val ?? null });
-          }}
-        />
-      ),
+      render: (_: unknown, record) => <StyleDateCell field="offline_time" {...cellProps(record)} />,
     },
     {
       title: '天数', dataIndex: 'days', key: 'days', width: 70,
       render: (v: number | null) => (v != null ? v : '—'),
     },
     {
-      title: '排产数量', dataIndex: 'scheduled_output', key: 'scheduled_output', width: 90,
-      render: (v: number, record) => (
-        <InputNumber
-          size="small"
-          className="w-full"
-          value={v}
-          min={0}
-          onChange={(val) => {
-            updateLocal(record.id, { scheduled_output: val ?? undefined });
-          }}
-          onBlur={() => patchStyle(record.id, { scheduled_output: record.scheduled_output ?? null })}
-        />
-      ),
+      title: '排产数量', dataIndex: 'scheduled_output', key: 'scheduled_output', width: 96,
+      render: (_: unknown, record) => <StyleNumberCell field="scheduled_output" {...cellProps(record)} />,
     },
     {
-      title: '日均产量', dataIndex: 'avg_daily_output', key: 'avg_daily_output', width: 90,
-      render: (v: number, record) => (
-        <InputNumber
-          size="small"
-          className="w-full"
-          value={v}
-          min={0}
-          onChange={(val) => updateLocal(record.id, { avg_daily_output: val ?? undefined })}
-          onBlur={() => patchStyle(record.id, { avg_daily_output: record.avg_daily_output ?? null })}
-        />
-      ),
+      title: '日均产量', dataIndex: 'avg_daily_output', key: 'avg_daily_output', width: 96,
+      render: (_: unknown, record) => <StyleNumberCell field="avg_daily_output" {...cellProps(record)} />,
     },
     {
       title: '比例', dataIndex: 'output_ratio', key: 'output_ratio', width: 70,
       render: (v: number | null) => (v != null ? v.toFixed(2) : '—'),
     },
-    { title: '短溢装', dataIndex: 'short_over_shipment', key: 'short_over_shipment', width: 90 },
     {
-      title: '外发', dataIndex: 'is_outsourced', key: 'is_outsourced', width: 70,
-      render: (v: boolean) => (v ? <Tag color="orange">是</Tag> : <Tag>否</Tag>),
+      title: '短溢装', dataIndex: 'short_over_shipment', key: 'short_over_shipment', width: 96,
+      render: (_: unknown, record) => <StyleShortOverCell field="short_over_shipment" {...cellProps(record)} />,
     },
-    { title: '外发工厂', dataIndex: 'outsourced_factory', key: 'outsourced_factory', width: 110, ellipsis: true },
-    { title: '海外跟单', dataIndex: 'overseas_merchandiser', key: 'overseas_merchandiser', width: 100 },
     {
-      title: '外发价格', dataIndex: 'outsourced_price', key: 'outsourced_price', width: 90,
-      render: (v: number) => formatMoney(v),
+      title: '外发', dataIndex: 'is_outsourced', key: 'is_outsourced', width: 72,
+      render: (_: unknown, record) => <StyleOutsourceSwitch {...cellProps(record)} />,
+    },
+    {
+      title: '外发工厂', dataIndex: 'outsourced_factory', key: 'outsourced_factory', width: 110,
+      render: (_: unknown, record) => (
+        <StyleTextCell field="outsourced_factory" placeholder="外发工厂" {...cellProps(record)} />
+      ),
+    },
+    {
+      title: '海外跟单', dataIndex: 'overseas_merchandiser', key: 'overseas_merchandiser', width: 100,
+      render: (_: unknown, record) => (
+        <StyleTextCell field="overseas_merchandiser" placeholder="海外跟单" {...cellProps(record)} />
+      ),
+    },
+    {
+      title: '外发价格', dataIndex: 'outsourced_price', key: 'outsourced_price', width: 96,
+      render: (_: unknown, record) => (
+        <StyleNumberCell field="outsourced_price" step={0.01} precision={2} {...cellProps(record)} />
+      ),
     },
     {
       title: '首床时间', dataIndex: 'first_bed_time', key: 'first_bed_time', width: 130,
-      render: (v: string, record) => (
-        <DatePicker
-          size="small"
-          className="w-full"
-          value={v ? dayjs(v) : undefined}
-          onChange={(d) => {
-            const val = d ? d.format('YYYY-MM-DD') : undefined;
-            updateLocal(record.id, { first_bed_time: val });
-            patchStyle(record.id, { first_bed_time: val ?? null });
-          }}
-        />
-      ),
+      render: (_: unknown, record) => <StyleDateCell field="first_bed_time" {...cellProps(record)} />,
     },
     { title: '款号', dataIndex: 'style_number', key: 'style_number', width: 110 },
     { title: '款式名称', dataIndex: 'style_name', key: 'style_name', width: 120, ellipsis: true },
@@ -176,7 +118,7 @@ export default function SchedulingView() {
         <Button type="link" size="small" icon={<HistoryOutlined />} onClick={() => setHistoryStyle(record)} />
       ),
     },
-  ], [savingId]);
+  ], [savingId, updateLocal, saveField]);
 
   const columns = useMemo(
     () => applyViewColumnPreferences(allColumns, columnPrefs),
@@ -195,7 +137,7 @@ export default function SchedulingView() {
 
   return (
     <div>
-      <div className="card-panel mb-4">
+      <div className="card-panel mb-4 scheduling-toolbar">
         <Space wrap className="w-full justify-between">
           <Input.Search placeholder="搜索款号/品牌" allowClear style={{ width: 220 }} onSearch={setSearch} />
           <TableColumnSettings
@@ -207,6 +149,7 @@ export default function SchedulingView() {
             }}
           />
         </Space>
+        <p className="scheduling-toolbar-hint">按组别折叠展示，表格内直接编辑排产信息</p>
       </div>
 
       <Collapse
@@ -216,7 +159,7 @@ export default function SchedulingView() {
           label: `${group}（${rows.length} 款）`,
           children: (
             <Table
-              className="quotation-list-table"
+              className="quotation-list-table scheduling-edit-table"
               rowKey="id"
               size="small"
               columns={columns}

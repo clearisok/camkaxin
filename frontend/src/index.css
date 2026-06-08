@@ -16,7 +16,8 @@ body {
 
 @layer components {
   .page-container {
-    @apply p-5 max-w-[1600px] mx-auto;
+    @apply p-5 mx-auto w-full;
+    max-width: min(1920px, calc(100vw - var(--app-sider-width, 240px) - 2.5rem));
   }
 
   .page-header {
@@ -194,4 +195,560 @@ body.table-col-resizing * {
 
 .row-dirty > td {
   background-color: #eff6ff !important;
+}
+
+.quotation-basic-panel .section-title {
+  margin-bottom: 1rem;
+}
+
+.quotation-basic-section {
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+}
+
+.quotation-basic-section:last-child {
+  margin-bottom: 0;
+}
+
+.quotation-basic-section-title {
+  margin: 0 0 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #475569;
+  letter-spacing: 0.02em;
+}
+
+.quotation-basic-grid {
+  display: grid;
+  gap: 1rem 1.25rem;
+}
+
+.quotation-basic-grid-4 {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+@media (min-width: 768px) {
+  .quotation-basic-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1200px) {
+  .quotation-basic-grid-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.quotation-basic-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.quotation-basic-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #64748b;
+  line-height: 1.25;
+}
+
+.quotation-basic-control {
+  min-height: 2rem;
+}
+
+.quotation-basic-value {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  color: #1e293b;
+  font-size: 0.875rem;
+}
+
+.quotation-basic-supplement-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (min-width: 992px) {
+  .quotation-basic-supplement-grid {
+    grid-template-columns: 220px 1fr;
+    gap: 1.5rem;
+  }
+}
+
+.quotation-basic-style-field .quotation-basic-control {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.quotation-basic-remarks-field {
+  height: 100%;
+}
+
+.quotation-basic-remarks-input,
+.quotation-basic-remarks-read {
+  min-height: 148px;
+}
+
+.quotation-basic-remarks-read {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+/* 款式详情 — 基本信息自适应宽度 */
+.auto-fit-control {
+  position: relative;
+  max-width: 400px;
+  min-width: 200px;
+}
+
+.auto-fit-measure {
+  position: absolute;
+  visibility: hidden;
+  height: 0;
+  overflow: hidden;
+  white-space: pre;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  padding: 0 11px;
+  pointer-events: none;
+}
+
+.auto-fit-control .ant-input,
+.auto-fit-control .ant-input-number,
+.auto-fit-control .ant-select,
+.auto-fit-control .ant-picker {
+  width: 100% !important;
+}
+
+.auto-fit-control .ant-input-number {
+  display: block;
+}
+
+.style-form-basic-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(168px, 22%, 220px);
+  gap: 1.5rem;
+  align-items: stretch;
+}
+
+.style-form-basic-fields {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.style-form-basic-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem calc(1rem + 25px);
+  align-items: flex-start;
+}
+
+.style-form-flex-field {
+  margin-bottom: 0 !important;
+  flex: 0 1 auto;
+}
+
+.style-form-flex-field .ant-form-item-label {
+  padding-bottom: 4px;
+}
+
+.style-form-flex-field .ant-form-item-label > label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.style-form-material-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.style-form-material-readiness-field {
+  margin-bottom: 0 !important;
+  flex: 0 0 400px;
+  width: 400px;
+  max-width: 400px;
+}
+
+.style-form-material-readiness-field .ant-form-item-label {
+  padding-bottom: 4px;
+}
+
+.style-form-material-readiness-field .ant-form-item-label > label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.style-form-material-readiness-field .ant-input {
+  width: 400px !important;
+  min-width: 400px !important;
+  max-width: 400px !important;
+  resize: vertical;
+}
+
+.style-form-material-fabric-readiness {
+  flex: 0 0 440px;
+  width: 440px;
+  max-width: 440px;
+}
+
+.style-form-material-fabric-readiness .ant-input {
+  width: 440px !important;
+  min-width: 440px !important;
+  max-width: 440px !important;
+}
+
+.style-form-material-accessories-readiness {
+  flex: 0 0 440px;
+  width: 440px;
+  max-width: 440px;
+}
+
+.style-form-material-accessories-readiness .ant-input {
+  width: 440px !important;
+  min-width: 440px !important;
+  max-width: 440px !important;
+}
+
+.style-form-remarks-field {
+  margin-bottom: 0 !important;
+  width: 100%;
+}
+
+.style-form-remarks-field .ant-input {
+  width: 950px !important;
+  min-width: 950px !important;
+  max-width: 950px !important;
+  resize: vertical;
+}
+
+.style-form-basic-image {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  padding: 0.5rem 0;
+  margin-left: -400px;
+  min-height: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+.style-form-basic-image .style-form-image-item {
+  width: 100%;
+  height: 100%;
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.style-form-basic-image .style-form-image-item .ant-form-item-row {
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+}
+
+.style-form-basic-image .style-form-image-item .ant-form-item-label {
+  display: none;
+}
+
+.style-form-basic-image .style-form-image-item .ant-form-item-control {
+  width: 100%;
+  max-width: 100%;
+}
+
+.style-form-basic-image .style-form-image-item .ant-form-item-control-input,
+.style-form-basic-image .style-form-image-item .ant-form-item-control-input-content {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.style-form-basic-image img {
+  width: 100%;
+  max-width: 100%;
+  max-height: 168px;
+  height: auto;
+  object-fit: contain;
+  border-radius: 0.5rem;
+}
+
+.style-form-basic-image .max-w-\[180px\] {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+
+.style-form-basic-image .space-y-2 {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.style-form-basic-image .style-form-image-upload .upload-dragger-mini .ant-upload-drag {
+  min-height: 76px;
+  padding-top: 14px !important;
+  padding-bottom: 14px !important;
+}
+
+@media (max-width: 768px) {
+  .style-form-basic-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .style-form-basic-image {
+    padding: 0.75rem 0 0;
+    margin-left: 0;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .style-form-remarks-field .ant-input {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .style-form-material-readiness-field {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .style-form-material-readiness-field .ant-input {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .style-form-basic-image img {
+    max-height: 140px;
+  }
+}
+
+.item-editor-table .ant-table-thead > tr > th,
+
+.item-editor-table .ant-table-tbody > tr > td {
+  text-align: center !important;
+}
+
+.brand-logo-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.brand-logo-img {
+  display: block;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.brand-logo-sidebar .brand-logo-img,
+.brand-logo-sidebar-collapsed .brand-logo-img {
+  height: 28px;
+  max-width: 120px;
+  padding: 4px 8px;
+  background: #fff;
+  border-radius: 6px;
+  box-sizing: content-box;
+}
+
+.brand-logo-sidebar-collapsed .brand-logo-img {
+  height: 22px;
+  max-width: 40px;
+  padding: 4px 6px;
+  margin: 0 auto;
+}
+
+.brand-logo-sidebar-collapsed.brand-logo-wrap {
+  justify-content: center;
+  width: 100%;
+}
+
+.brand-logo-header .brand-logo-img {
+  height: 22px;
+  max-width: 88px;
+  filter: none;
+}
+
+.brand-logo-page .brand-logo-img {
+  height: 26px;
+  max-width: 100px;
+  filter: none;
+}
+
+.brand-logo-hero .brand-logo-img {
+  height: 56px;
+  max-width: 220px;
+  filter: none;
+}
+
+.brand-logo-watermark .brand-logo-img {
+  height: 20px;
+  max-width: 80px;
+  opacity: 0.35;
+  filter: none;
+}
+
+.brand-logo-name {
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+
+.brand-logo-sidebar.brand-logo-wrap {
+  flex-direction: column;
+  gap: 0.375rem;
+  text-align: center;
+}
+
+.brand-hero-panel {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+}
+
+.brand-hero-panel-text {
+  min-width: 0;
+}
+
+.brand-hero-panel-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.brand-hero-panel-desc {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.scheduling-toolbar-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.scheduling-edit-table .scheduling-inline-input {
+  min-width: 0;
+}
+
+.scheduling-edit-table .ant-input-sm,
+.scheduling-edit-table .ant-input-number-sm,
+.scheduling-edit-table .ant-select-sm,
+.scheduling-edit-table .ant-picker-small,
+.scheduling-edit-table .scheduling-inline-textarea {
+  font-size: 12px;
+}
+
+.scheduling-edit-table .scheduling-inline-textarea {
+  min-width: 0;
+  resize: vertical;
+}
+
+.scheduling-edit-table .ant-table-tbody > tr > td {
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+  vertical-align: middle;
+}
+
+.app-header-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.app-header-scheduling-tabs {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0 !important;
+}
+
+.app-header-scheduling-tabs .ant-tabs-nav {
+  margin-bottom: 0 !important;
+}
+
+.app-header-scheduling-tabs .ant-tabs-nav::before {
+  border-bottom: none;
+}
+
+.app-header-scheduling-tabs .ant-tabs-tab {
+  padding: 8px 0;
+}
+
+.scheduling-module-content {
+  padding-top: 1.25rem;
+}
+
+.item-editor-table .ant-table-thead > tr > th .table-col-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding-right: 8px;
+  box-sizing: border-box;
+}
+
+/* 全局隐藏输入框清除按钮（×）与数字步进按钮（↑↓） */
+.ant-input-clear-icon,
+.ant-input-affix-wrapper .ant-input-clear-icon,
+.ant-select-clear,
+.ant-picker-clear,
+.ant-cascader-picker-clear,
+.ant-mentions-clear-icon {
+  display: none !important;
+}
+
+.ant-input-number-handler-wrap {
+  display: none !important;
+}
+
+.ant-input-number .ant-input-number-input {
+  padding-right: 11px;
+}
+
+.ant-input-number-in-form-item,
+.ant-input-number {
+  width: 100%;
+}
+
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }

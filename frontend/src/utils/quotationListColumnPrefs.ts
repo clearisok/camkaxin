@@ -51,30 +51,39 @@ export interface ColumnPreferences {
   widths: ColumnWidths;
 }
 
-export function normalizeColumnPreferences(raw: Partial<ColumnPreferences> | null): ColumnPreferences {
-  const known = new Set(QUOTATION_LIST_COLUMN_DEFS.map((c) => c.key));
+export function normalizeColumnPreferencesForDefs(
+  raw: Partial<ColumnPreferences> | null,
+  defs: ColumnPrefItem[],
+): ColumnPreferences {
+  const known = new Set(defs.map((c) => c.key));
+  const defaultOrder = defs.map((c) => c.key);
   const order: string[] = [];
   for (const key of raw?.order ?? []) {
     if (known.has(key) && !order.includes(key)) order.push(key);
   }
-  for (const key of DEFAULT_COLUMN_ORDER) {
+  for (const key of defaultOrder) {
     if (!order.includes(key)) order.push(key);
   }
 
-  const visible = { ...defaultColumnVisibility(), ...(raw?.visible ?? {}) };
-  for (const col of QUOTATION_LIST_COLUMN_DEFS) {
+  const visible = Object.fromEntries(defs.map((c) => [c.key, true]));
+  Object.assign(visible, raw?.visible ?? {});
+  for (const col of defs) {
     if (col.hideable === false) visible[col.key] = true;
   }
 
-  const defaults = defaultColumnWidths();
+  const defaults = Object.fromEntries(defs.map((c) => [c.key, c.defaultWidth]));
   const widths: ColumnWidths = { ...defaults };
-  for (const col of QUOTATION_LIST_COLUMN_DEFS) {
+  for (const col of defs) {
     if (raw?.widths && col.key in raw.widths) {
       widths[col.key] = clampColumnWidth(raw.widths[col.key], defaults[col.key]);
     }
   }
 
   return { order, visible, widths };
+}
+
+export function normalizeColumnPreferences(raw: Partial<ColumnPreferences> | null): ColumnPreferences {
+  return normalizeColumnPreferencesForDefs(raw, QUOTATION_LIST_COLUMN_DEFS);
 }
 
 export function loadColumnPreferences(): ColumnPreferences {

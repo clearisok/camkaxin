@@ -33,13 +33,13 @@ export default function StyleImageUpload({ value, onChange, readOnly }: StyleIma
   }
 
   return (
-    <div className="max-w-[180px]">
+    <div className="style-form-image-upload max-w-[180px]">
       <FileUpload
         value={[]}
         onChange={(paths) => onChange(paths[0])}
         maxCount={1}
         accept="image/*"
-        hint="点击、拖拽或粘贴"
+        hint="上传款式图 点击、拖拽或粘贴"
         compact
         mini
         hideDraggerWhenFull

@@ -8,7 +8,7 @@ const { Pool } = pg;
 export const pool = new Pool({
   connectionString:
     process.env.DATABASE_URL ||
-    'postgresql://jiankai:jiankai123@localhost:5432/jiankai_quotation',
+    'postgresql://jiankai:jiankai123@localhost:5433/jiankai_quotation',
 });
 
 // Prevent Node process crash when idle clients lose connection (e.g. Docker PG restart)

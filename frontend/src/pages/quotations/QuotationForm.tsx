@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, type ReactNode } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Form, Select, DatePicker, InputNumber, Input, Button, Tag, message, Spin, Space, Radio,
@@ -21,6 +21,28 @@ import PageHeader from '@/components/PageHeader';
 import { FieldPermission } from '@/components/FieldPermission';
 
 const REMARKS_PLACEHOLDER = '着重填写：面料特性/部位情况(如口袋/门襟/裤耳等)/工艺';
+
+function BasicField({
+  label,
+  required,
+  children,
+  className = '',
+}: {
+  label: string;
+  required?: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`quotation-basic-field ${className}`}>
+      <label className="quotation-basic-label">
+        {label}
+        {required ? <span className="text-red-500 ml-0.5">*</span> : null}
+      </label>
+      <div className="quotation-basic-control">{children}</div>
+    </div>
+  );
+}
 
 function formatOptionalPrice(value?: number): string {
   return value != null && !Number.isNaN(value) ? value.toFixed(2) : '—';
@@ -132,35 +154,43 @@ export default function QuotationForm() {
   const handleBrandChange = async (brandId: number) => {
     const linked = syncBrandAgents(brandId);
     const defaultAgent = linked.length === 1 ? linked[0] : undefined;
-    setForm((prev) => ({
-      ...prev,
-      brand_id: brandId,
-      agent_name: defaultAgent?.name || '',
-    }));
+    const wastage = defaultAgent?.default_wastage ?? agentDefaultWastage;
     if (defaultAgent) {
       setAgentDefaultWastage(defaultAgent.default_wastage ?? 5);
     }
 
+    let brandAccessories: Accessory[] | undefined;
     try {
       await trackBrandUsage(brandId);
       const res = await getBrandDefaultAccessories(brandId);
       const defaultAccs = res.data || [];
-      const wastage = defaultAgent?.default_wastage ?? agentDefaultWastage;
-      if (defaultAccs.length > 0 && form.items?.length) {
-        const items = [...form.items];
-        items[0] = {
-          ...items[0],
-          accessories: defaultAccs.map((a: Accessory) => ({
+      if (defaultAccs.length > 0) {
+        brandAccessories = defaultAccs.map((a: Accessory) => {
+          const matched = accessories.find((lib) => lib.name === a.name);
+          return {
+            accessory_id: matched?.id,
             name: a.name,
-            specification: a.specification,
+            specification: a.specification || matched?.specification,
             consumption: a.consumption ?? 1,
-            wastage,
-            unit_price: a.unit_price ?? 0,
-          })),
-        };
-        setForm((prev) => ({ ...prev, items }));
+            wastage: a.wastage ?? wastage,
+            unit_price: a.unit_price ?? matched?.reference_price ?? 0,
+          };
+        });
       }
     } catch { /* ignore */ }
+
+    setForm((prev) => {
+      const items = [...(prev.items || [])];
+      if (brandAccessories?.length && items.length) {
+        items[0] = { ...items[0], accessories: brandAccessories };
+      }
+      return {
+        ...prev,
+        brand_id: brandId,
+        agent_name: defaultAgent?.name || '',
+        items,
+      };
+    });
   };
 
   const handleAgentChange = (agentName: string) => {
@@ -236,7 +266,7 @@ export default function QuotationForm() {
       <PageHeader
         title={isNew ? '新建报价单' : readOnly ? '查看报价单' : '编辑报价单'}
         subtitle={form.quotation_no}
-        onBack={() => navigate('/quotations')}
+        onBack={isNew ? undefined : () => navigate('/quotations')}
         extra={!readOnly && (
           <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
             保存
@@ -244,260 +274,261 @@ export default function QuotationForm() {
         )}
       />
 
-      <div className="card-panel mb-6">
+      <div className="card-panel mb-6 quotation-basic-panel">
         <h2 className="section-title">基本信息</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <FieldPermission fieldCode="quotation.brand_id">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">品牌 *</label>
-              {readOnly ? <span>{form.brand_name}</span> : (
-                <Select
-                  showSearch
-                  placeholder="选择品牌"
-                  className="w-full"
-                  value={form.brand_id}
-                  onChange={handleBrandChange}
-                  options={brands.map((b) => ({
-                    value: b.id,
-                    label: (
-                      <span>
-                        {b.name}
-                        {b.use_count ? <Tag className="ml-1" color="blue">{b.use_count}次</Tag> : null}
-                      </span>
-                    ),
-                  }))}
-                  filterOption={(input, option) =>
-                    brands.find((b) => b.id === option?.value)?.name.toLowerCase().includes(input.toLowerCase()) ?? false
-                  }
-                />
-              )}
-            </div>
-          </FieldPermission>
 
-          <FieldPermission fieldCode="quotation.agent_name">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">业务员 *</label>
-              {readOnly ? (
-                <span>{form.agent_name || '-'}</span>
-              ) : (
-                <Select
-                  className="w-full"
-                  placeholder={form.brand_id ? '选择业务员' : '请先选择品牌'}
-                  disabled={!form.brand_id || brandAgents.length === 0}
-                  value={form.agent_name || undefined}
-                  onChange={handleAgentChange}
-                  options={brandAgents.map((a) => ({ value: a.name, label: a.name }))}
-                />
-              )}
-            </div>
-          </FieldPermission>
-
-          <FieldPermission fieldCode="quotation.quote_date">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">报价日期</label>
-              {readOnly ? <span>{form.quote_date}</span> : (
-                <DatePicker
-                  className="w-full"
-                  value={form.quote_date ? dayjs(form.quote_date) : dayjs()}
-                  onChange={(d) => {
-                    if (d) {
-                      setForm((prev) => ({
-                        ...prev,
-                        quote_date: d.format('YYYY-MM-DD'),
-                      }));
+        <div className="quotation-basic-section">
+          <h3 className="quotation-basic-section-title">客户与日期</h3>
+          <div className="quotation-basic-grid quotation-basic-grid-4">
+            <FieldPermission fieldCode="quotation.brand_id">
+              <BasicField label="品牌" required>
+                {readOnly ? <span className="quotation-basic-value">{form.brand_name}</span> : (
+                  <Select
+                    showSearch
+                    placeholder="选择品牌"
+                    className="w-full"
+                    value={form.brand_id}
+                    onChange={handleBrandChange}
+                    options={brands.map((b) => ({
+                      value: b.id,
+                      label: (
+                        <span>
+                          {b.name}
+                          {b.use_count ? <Tag className="ml-1" color="blue">{b.use_count}次</Tag> : null}
+                        </span>
+                      ),
+                    }))}
+                    filterOption={(input, option) =>
+                      brands.find((b) => b.id === option?.value)?.name.toLowerCase().includes(input.toLowerCase()) ?? false
                     }
-                  }}
-                />
-              )}
-            </div>
-          </FieldPermission>
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
 
-          <FieldPermission fieldCode="quotation.fabric_delivery_date">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">面料交期</label>
-              {readOnly ? <span>{form.fabric_delivery_date || '—'}</span> : (
-                <DatePicker
-                  className="w-full"
-                  value={form.fabric_delivery_date ? dayjs(form.fabric_delivery_date) : undefined}
-                  onChange={(d) => setForm((prev) => ({
-                    ...prev,
-                    fabric_delivery_date: d ? d.format('YYYY-MM-DD') : undefined,
-                  }))}
-                />
-              )}
-            </div>
-          </FieldPermission>
+            <FieldPermission fieldCode="quotation.agent_name">
+              <BasicField label="业务员" required>
+                {readOnly ? (
+                  <span className="quotation-basic-value">{form.agent_name || '—'}</span>
+                ) : (
+                  <Select
+                    className="w-full"
+                    placeholder={form.brand_id ? '选择业务员' : '请先选择品牌'}
+                    disabled={!form.brand_id || brandAgents.length === 0}
+                    value={form.agent_name || undefined}
+                    onChange={handleAgentChange}
+                    options={brandAgents.map((a) => ({ value: a.name, label: a.name }))}
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
 
-          <FieldPermission fieldCode="quotation.garment_delivery_date">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">成衣交期</label>
-              {readOnly ? <span>{form.garment_delivery_date || '—'}</span> : (
-                <DatePicker
-                  className="w-full"
-                  value={form.garment_delivery_date ? dayjs(form.garment_delivery_date) : undefined}
-                  onChange={(d) => setForm((prev) => ({
-                    ...prev,
-                    garment_delivery_date: d ? d.format('YYYY-MM-DD') : undefined,
-                  }))}
-                />
-              )}
-            </div>
-          </FieldPermission>
+            <FieldPermission fieldCode="quotation.quote_date">
+              <BasicField label="报价日期">
+                {readOnly ? <span className="quotation-basic-value">{form.quote_date}</span> : (
+                  <DatePicker
+                    className="w-full"
+                    value={form.quote_date ? dayjs(form.quote_date) : dayjs()}
+                    onChange={(d) => {
+                      if (d) {
+                        setForm((prev) => ({ ...prev, quote_date: d.format('YYYY-MM-DD') }));
+                      }
+                    }}
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
 
-          <FieldPermission fieldCode="quotation.currency">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">报价币种</label>
-              {readOnly ? <span>{form.currency}</span> : (
-                <Radio.Group
-                  value={form.currency}
-                  onChange={(e) => setForm((prev) => ({ ...prev, currency: e.target.value }))}
-                  options={[{ value: 'RMB', label: 'RMB' }, { value: 'USD', label: 'USD' }]}
-                />
-              )}
-            </div>
-          </FieldPermission>
-
-          <FieldPermission fieldCode="quotation.exchange_rate">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">汇率 (USD→RMB)</label>
-              {readOnly ? <span>{roundRate(form.exchange_rate).toFixed(2)}</span> : (
-                <InputNumber
-                  className="w-full"
-                  value={form.exchange_rate}
-                  onChange={(v) => setForm((prev) => ({ ...prev, exchange_rate: roundRate(v, exchangeRate) }))}
-                  min={0}
-                  step={0.01}
-                  precision={2}
-                />
-              )}
-            </div>
-          </FieldPermission>
-
-          <FieldPermission fieldCode="quotation.profit_margin">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">利润率 (%)</label>
-              {readOnly ? <span>{form.profit_margin}%</span> : (
-                <InputNumber
-                  className="w-full"
-                  value={form.profit_margin}
-                  onChange={(v) => setForm((prev) => ({ ...prev, profit_margin: v ?? 5 }))}
-                  min={0}
-                  max={100}
-                />
-              )}
-            </div>
-          </FieldPermission>
-
-          <FieldPermission fieldCode="quotation.target_labor_price">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">目标工价</label>
-              {readOnly ? <span>{formatOptionalPrice(form.target_labor_price)}</span> : (
-                <InputNumber
-                  className="w-full"
-                  value={form.target_labor_price}
-                  onChange={(v) => setForm((prev) => ({ ...prev, target_labor_price: v ?? undefined }))}
-                  min={0}
-                  step={0.01}
-                  precision={2}
-                />
-              )}
-            </div>
-          </FieldPermission>
-
-          <FieldPermission fieldCode="quotation.target_garment_price">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">目标成衣价格</label>
-              {readOnly ? <span>{formatOptionalPrice(form.target_garment_price)}</span> : (
-                <InputNumber
-                  className="w-full"
-                  value={form.target_garment_price}
-                  onChange={(v) => setForm((prev) => ({ ...prev, target_garment_price: v ?? undefined }))}
-                  min={0}
-                  step={0.01}
-                  precision={2}
-                />
-              )}
-            </div>
-          </FieldPermission>
-
-          <FieldPermission fieldCode="quotation.confirmed_labor_price">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">确认工价</label>
-              {readOnly ? <span>{formatOptionalPrice(form.confirmed_labor_price)}</span> : (
-                <InputNumber
-                  className="w-full"
-                  value={form.confirmed_labor_price}
-                  onChange={(v) => setForm((prev) => ({ ...prev, confirmed_labor_price: v ?? undefined }))}
-                  min={0}
-                  step={0.01}
-                  precision={2}
-                />
-              )}
-            </div>
-          </FieldPermission>
-
-          <FieldPermission fieldCode="quotation.confirmed_garment_price">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">确认成衣价格</label>
-              {readOnly ? <span>{formatOptionalPrice(form.confirmed_garment_price)}</span> : (
-                <InputNumber
-                  className="w-full"
-                  value={form.confirmed_garment_price}
-                  onChange={(v) => setForm((prev) => ({ ...prev, confirmed_garment_price: v ?? undefined }))}
-                  min={0}
-                  step={0.01}
-                  precision={2}
-                />
-              )}
-            </div>
-          </FieldPermission>
-
-          <FieldPermission fieldCode="quotation.status">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">状态</label>
-              {readOnly ? <Tag>{form.status}</Tag> : (
-                <Select
-                  className="w-full"
-                  value={form.status}
-                  onChange={(v) => setForm((prev) => ({ ...prev, status: v }))}
-                  options={[
-                    { value: 'draft', label: '草稿' },
-                    { value: 'sent', label: '已发送' },
-                    { value: 'confirmed', label: '已确认' },
-                    { value: 'expired', label: '已过期' },
-                  ]}
-                />
-              )}
-            </div>
-          </FieldPermission>
+            <FieldPermission fieldCode="quotation.status">
+              <BasicField label="状态">
+                {readOnly ? <Tag>{form.status}</Tag> : (
+                  <Select
+                    className="w-full"
+                    value={form.status}
+                    onChange={(v) => setForm((prev) => ({ ...prev, status: v }))}
+                    options={[
+                      { value: 'draft', label: '草稿' },
+                      { value: 'sent', label: '已发送' },
+                      { value: 'confirmed', label: '已确认' },
+                      { value: 'expired', label: '已过期' },
+                    ]}
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
+          </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <FieldPermission fieldCode="quotation.style_image">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">款式图</label>
-              <StyleImageUpload
-                value={form.style_image}
-                onChange={(path) => setForm((prev) => ({ ...prev, style_image: path }))}
-                readOnly={readOnly}
-              />
-            </div>
-          </FieldPermission>
+        <div className="quotation-basic-section">
+          <h3 className="quotation-basic-section-title">交期与报价参数</h3>
+          <div className="quotation-basic-grid quotation-basic-grid-4">
+            <FieldPermission fieldCode="quotation.fabric_delivery_date">
+              <BasicField label="面料交期">
+                {readOnly ? <span className="quotation-basic-value">{form.fabric_delivery_date || '—'}</span> : (
+                  <DatePicker
+                    className="w-full"
+                    value={form.fabric_delivery_date ? dayjs(form.fabric_delivery_date) : undefined}
+                    onChange={(d) => setForm((prev) => ({
+                      ...prev,
+                      fabric_delivery_date: d ? d.format('YYYY-MM-DD') : undefined,
+                    }))}
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
 
-          <FieldPermission fieldCode="quotation.remarks">
-            <div>
-              <label className="text-sm text-gray-500 mb-1 block">备注</label>
-              {readOnly ? <p className="text-gray-700">{form.remarks || '—'}</p> : (
-                <Input.TextArea
-                  rows={3}
-                  value={form.remarks}
-                  placeholder={REMARKS_PLACEHOLDER}
-                  onChange={(e) => setForm((prev) => ({ ...prev, remarks: e.target.value }))}
-                  className="placeholder:text-gray-400"
+            <FieldPermission fieldCode="quotation.garment_delivery_date">
+              <BasicField label="成衣交期">
+                {readOnly ? <span className="quotation-basic-value">{form.garment_delivery_date || '—'}</span> : (
+                  <DatePicker
+                    className="w-full"
+                    value={form.garment_delivery_date ? dayjs(form.garment_delivery_date) : undefined}
+                    onChange={(d) => setForm((prev) => ({
+                      ...prev,
+                      garment_delivery_date: d ? d.format('YYYY-MM-DD') : undefined,
+                    }))}
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
+
+            <FieldPermission fieldCode="quotation.currency">
+              <BasicField label="报价币种">
+                {readOnly ? <span className="quotation-basic-value">{form.currency}</span> : (
+                  <Radio.Group
+                    value={form.currency}
+                    onChange={(e) => setForm((prev) => ({ ...prev, currency: e.target.value }))}
+                    options={[{ value: 'RMB', label: 'RMB' }, { value: 'USD', label: 'USD' }]}
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
+
+            <FieldPermission fieldCode="quotation.exchange_rate">
+              <BasicField label="汇率 (USD→RMB)">
+                {readOnly ? <span className="quotation-basic-value">{roundRate(form.exchange_rate).toFixed(2)}</span> : (
+                  <InputNumber
+                    className="w-full"
+                    value={form.exchange_rate}
+                    onChange={(v) => setForm((prev) => ({ ...prev, exchange_rate: roundRate(v, exchangeRate) }))}
+                    min={0}
+                    step={0.01}
+                    precision={2}
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
+
+            <FieldPermission fieldCode="quotation.profit_margin">
+              <BasicField label="利润率 (%)">
+                {readOnly ? <span className="quotation-basic-value">{form.profit_margin}%</span> : (
+                  <InputNumber
+                    className="w-full"
+                    value={form.profit_margin}
+                    onChange={(v) => setForm((prev) => ({ ...prev, profit_margin: v ?? 5 }))}
+                    min={0}
+                    max={100}
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
+          </div>
+        </div>
+
+        <div className="quotation-basic-section">
+          <h3 className="quotation-basic-section-title">目标与确认价格</h3>
+          <div className="quotation-basic-grid quotation-basic-grid-4">
+            <FieldPermission fieldCode="quotation.target_labor_price">
+              <BasicField label="目标工价">
+                {readOnly ? <span className="quotation-basic-value">{formatOptionalPrice(form.target_labor_price)}</span> : (
+                  <InputNumber
+                    className="w-full"
+                    value={form.target_labor_price}
+                    onChange={(v) => setForm((prev) => ({ ...prev, target_labor_price: v ?? undefined }))}
+                    min={0}
+                    step={0.01}
+                    precision={2}
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
+
+            <FieldPermission fieldCode="quotation.target_garment_price">
+              <BasicField label="目标成衣价格">
+                {readOnly ? <span className="quotation-basic-value">{formatOptionalPrice(form.target_garment_price)}</span> : (
+                  <InputNumber
+                    className="w-full"
+                    value={form.target_garment_price}
+                    onChange={(v) => setForm((prev) => ({ ...prev, target_garment_price: v ?? undefined }))}
+                    min={0}
+                    step={0.01}
+                    precision={2}
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
+
+            <FieldPermission fieldCode="quotation.confirmed_labor_price">
+              <BasicField label="确认工价">
+                {readOnly ? <span className="quotation-basic-value">{formatOptionalPrice(form.confirmed_labor_price)}</span> : (
+                  <InputNumber
+                    className="w-full"
+                    value={form.confirmed_labor_price}
+                    onChange={(v) => setForm((prev) => ({ ...prev, confirmed_labor_price: v ?? undefined }))}
+                    min={0}
+                    step={0.01}
+                    precision={2}
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
+
+            <FieldPermission fieldCode="quotation.confirmed_garment_price">
+              <BasicField label="确认成衣价格">
+                {readOnly ? <span className="quotation-basic-value">{formatOptionalPrice(form.confirmed_garment_price)}</span> : (
+                  <InputNumber
+                    className="w-full"
+                    value={form.confirmed_garment_price}
+                    onChange={(v) => setForm((prev) => ({ ...prev, confirmed_garment_price: v ?? undefined }))}
+                    min={0}
+                    step={0.01}
+                    precision={2}
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
+          </div>
+        </div>
+
+        <div className="quotation-basic-section quotation-basic-supplement">
+          <h3 className="quotation-basic-section-title">补充信息</h3>
+          <div className="quotation-basic-supplement-grid">
+            <FieldPermission fieldCode="quotation.style_image">
+              <BasicField label="款式图" className="quotation-basic-style-field">
+                <StyleImageUpload
+                  value={form.style_image}
+                  onChange={(path) => setForm((prev) => ({ ...prev, style_image: path }))}
+                  readOnly={readOnly}
                 />
-              )}
-            </div>
-          </FieldPermission>
+              </BasicField>
+            </FieldPermission>
+
+            <FieldPermission fieldCode="quotation.remarks">
+              <BasicField label="备注" className="quotation-basic-remarks-field">
+                {readOnly ? (
+                  <p className="quotation-basic-value quotation-basic-remarks-read">{form.remarks || '—'}</p>
+                ) : (
+                  <Input.TextArea
+                    rows={5}
+                    value={form.remarks}
+                    placeholder={REMARKS_PLACEHOLDER}
+                    onChange={(e) => setForm((prev) => ({ ...prev, remarks: e.target.value }))}
+                    className="quotation-basic-remarks-input placeholder:text-gray-400"
+                  />
+                )}
+              </BasicField>
+            </FieldPermission>
+          </div>
         </div>
       </div>
 

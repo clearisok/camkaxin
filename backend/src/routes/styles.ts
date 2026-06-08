@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { parseId } from '../utils/params.js';
 import {
   listStyles,
+  getStyleById,
+  createStyle,
   updateStyle,
   bulkUpdateStyles,
   getStyleHistory,
@@ -14,13 +16,19 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   try {
     await seedStylesIfEmpty();
-    const { view, closing_month, group, unscheduled_only, search } = req.query;
+    const {
+      view, closing_month, brand, salesperson, group, unscheduled_only, search, sort_by, sort_order,
+    } = req.query;
     const data = await listStyles({
       view: view as 'early_warning' | 'scheduling' | 'closing' | undefined,
       closing_month: closing_month as string | undefined,
+      brand: brand as string | undefined,
+      salesperson: salesperson as string | undefined,
       group: group as string | undefined,
       unscheduled_only: unscheduled_only === 'true' || unscheduled_only === '1',
       search: search as string | undefined,
+      sort_by: sort_by as string | undefined,
+      sort_order: sort_order === 'desc' ? 'desc' : sort_order === 'asc' ? 'asc' : undefined,
     });
     res.json({ data });
   } catch (err) {
@@ -37,6 +45,15 @@ router.get('/monthly-summary', async (_req: Request, res: Response) => {
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: String(err) });
+  }
+});
+
+router.post('/', async (req: Request, res: Response) => {
+  try {
+    const data = await createStyle(req.body as Record<string, unknown>);
+    res.status(201).json({ data });
+  } catch (err) {
+    res.status(400).json({ error: String(err) });
   }
 });
 
@@ -61,6 +78,20 @@ router.get('/:id/history', async (req: Request, res: Response) => {
   try {
     const id = parseId(req.params.id);
     const data = await getStyleHistory(id);
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+router.get('/:id', async (req: Request, res: Response) => {
+  try {
+    const id = parseId(req.params.id);
+    const data = await getStyleById(id);
+    if (!data) {
+      res.status(404).json({ error: '款式不存在' });
+      return;
+    }
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: String(err) });

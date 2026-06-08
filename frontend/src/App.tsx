@@ -9,6 +9,7 @@ import FabricManage from './pages/config/FabricManage';
 import AccessoryManage from './pages/config/AccessoryManage';
 import SystemSettings from './pages/config/SystemSettings';
 import SchedulingModule from './pages/scheduling/SchedulingModule';
+import StyleForm from './pages/scheduling/StyleForm';
 
 export default function App() {
   return (
@@ -21,6 +22,8 @@ export default function App() {
           <Route path="quotations/:id" element={<QuotationForm />} />
           <Route path="quotations/:id/edit" element={<QuotationForm />} />
           <Route path="scheduling" element={<SchedulingModule />} />
+          <Route path="scheduling/styles/new" element={<StyleForm />} />
+          <Route path="scheduling/styles/:id" element={<StyleForm />} />
           <Route path="config/agents" element={<AgentManage />} />
           <Route path="config/brands" element={<BrandManage />} />
           <Route path="config/fabrics" element={<FabricManage />} />

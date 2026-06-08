@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Table, Space, Button, message, Select, InputNumber,
-} from 'antd';
+import { Table, Space, Button, message, Select, InputNumber } from 'antd';
 import { HistoryOutlined, SaveOutlined } from '@ant-design/icons';
 import {
   DndContext,
@@ -203,7 +201,7 @@ export default function ClosingMonthView() {
       render: (v: number, record) => (
         <InputNumber
           size="small"
-          className="w-full"
+          className="scheduling-inline-input w-full"
           value={v}
           min={0}
           step={0.01}

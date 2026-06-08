@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   Input, InputNumber, Select, Button, Table, Collapse, Space, Modal, Tag, Spin, AutoComplete,
 } from 'antd';
@@ -11,6 +11,19 @@ import CostSummary from '@/components/CostSummary';
 import FileUpload from '@/components/FileUpload';
 import AttachmentPreviewList from '@/components/AttachmentPreviewList';
 import { FieldPermission } from '@/components/FieldPermission';
+import ResizableTableHeader from '@/components/ResizableTableHeader';
+import {
+  FABRIC_COLUMN_DEFS,
+  ACCESSORY_COLUMN_DEFS,
+  loadFabricColumnWidths,
+  loadAccessoryColumnWidths,
+  saveFabricColumnWidths,
+  saveAccessoryColumnWidths,
+  applyItemEditorColumnWidths,
+  estimateItemEditorScrollX,
+} from '@/utils/itemEditorColumnPrefs';
+
+const TABLE_HEADER_COMPONENTS = { header: { cell: ResizableTableHeader } };
 
 interface ItemEditorProps {
   item: QuotationItem;
@@ -34,6 +47,32 @@ export default function ItemEditor({
 }: ItemEditorProps) {
   const [tierModal, setTierModal] = useState(false);
   const [tiers, setTiers] = useState<QuantityTier[]>(item.quantity_tiers || []);
+  const [fabricColWidths, setFabricColWidths] = useState(loadFabricColumnWidths);
+  const [accessoryColWidths, setAccessoryColWidths] = useState(loadAccessoryColumnWidths);
+
+  const handleFabricColResize = useCallback((key: string, width: number) => {
+    setFabricColWidths((prev) => ({ ...prev, [key]: width }));
+  }, []);
+
+  const handleFabricColResizeStop = useCallback((key: string, width: number) => {
+    setFabricColWidths((prev) => {
+      const next = { ...prev, [key]: width };
+      saveFabricColumnWidths(next);
+      return next;
+    });
+  }, []);
+
+  const handleAccessoryColResize = useCallback((key: string, width: number) => {
+    setAccessoryColWidths((prev) => ({ ...prev, [key]: width }));
+  }, []);
+
+  const handleAccessoryColResizeStop = useCallback((key: string, width: number) => {
+    setAccessoryColWidths((prev) => {
+      const next = { ...prev, [key]: width };
+      saveAccessoryColumnWidths(next);
+      return next;
+    });
+  }, []);
 
   const toFabricCalcInput = (r: Fabric) => ({
     pieceLength: r.piece_length || 0,
@@ -153,11 +192,33 @@ export default function ItemEditor({
     }
   };
 
+  const commitAccessoryInput = (idx: number, rawName: string) => {
+    const trimmed = rawName.trim();
+    if (!trimmed) return;
+    const lower = trimmed.toLowerCase();
+    const exact = accessoryOptions.find((o) => o.label.toLowerCase() === lower);
+    if (exact) {
+      selectAccessory(idx, exact.value);
+      return;
+    }
+    const partial = accessoryOptions.filter((o) => o.label.toLowerCase().includes(lower));
+    if (partial.length === 1) {
+      selectAccessory(idx, partial[0].value);
+      return;
+    }
+    updateAccessory(idx, { name: trimmed, accessory_id: undefined });
+  };
+
+  const accessoryAutoCompleteOptions = accessoryOptions.map((o) => ({
+    value: String(o.value),
+    label: o.label,
+  }));
+
   const fabricSelectNotFound = optionsReady ? '暂无数据' : <Spin size="small" />;
 
   const fabricColumns = [
     {
-      title: '面料', dataIndex: 'name', width: 180,
+      key: 'name', title: '面料', dataIndex: 'name', width: 180,
       render: (_: unknown, r: Fabric, idx: number) => readOnly ? item.fabrics?.[idx]?.name : (
         <AutoComplete
           className="w-full"
@@ -190,13 +251,13 @@ export default function ItemEditor({
       ),
     },
     {
-      title: '成分', dataIndex: 'composition', width: 120,
+      key: 'composition', title: '成分', dataIndex: 'composition', width: 120,
       render: (_: unknown, r: Fabric, idx: number) => readOnly ? r.composition : (
         <Input size="small" value={r.composition} onChange={(e) => updateFabric(idx, { composition: e.target.value })} />
       ),
     },
     {
-      title: '克重(g/m²)', dataIndex: 'weight', width: 100,
+      key: 'weight', title: '克重(g/m²)', dataIndex: 'weight', width: 100,
       render: (_: unknown, r: Fabric, idx: number) => readOnly ? (r.weight != null ? r.weight : '-') : (
         <InputNumber
           size="small"
@@ -210,7 +271,7 @@ export default function ItemEditor({
       ),
     },
     {
-      title: '净门幅(厘米)', dataIndex: 'net_width', width: 110,
+      key: 'net_width', title: '净门幅(厘米)', dataIndex: 'net_width', width: 110,
       render: (_: unknown, r: Fabric, idx: number) => readOnly ? (r.net_width ?? '-') : (
         <InputNumber
           size="small"
@@ -223,7 +284,7 @@ export default function ItemEditor({
       ),
     },
     {
-      title: '毛门幅(厘米)', dataIndex: 'gross_width', width: 110,
+      key: 'gross_width', title: '毛门幅(厘米)', dataIndex: 'gross_width', width: 110,
       render: (_: unknown, r: Fabric, idx: number) => readOnly ? (r.gross_width ?? '-') : (
         <InputNumber
           size="small"
@@ -236,7 +297,7 @@ export default function ItemEditor({
       ),
     },
     {
-      title: '单位', dataIndex: 'unit', width: 90,
+      key: 'unit', title: '单位', dataIndex: 'unit', width: 90,
       render: (_: unknown, r: Fabric, idx: number) => readOnly ? (UNIT_LABELS[r.unit] || r.unit) : (
         <Select
           size="small"
@@ -248,94 +309,127 @@ export default function ItemEditor({
       ),
     },
     {
-      title: '段长(厘米)', dataIndex: 'piece_length', width: 100,
+      key: 'piece_length', title: '段长(厘米)', dataIndex: 'piece_length', width: 100,
       render: (_: unknown, r: Fabric, idx: number) => readOnly ? r.piece_length : (
         <InputNumber size="small" value={r.piece_length} onChange={(v) => updateFabric(idx, { piece_length: v || 0 })} min={0} step={0.01} className="w-full" addonAfter="cm" />
       ),
     },
     {
-      title: '损耗%', dataIndex: 'wastage', width: 80,
+      key: 'wastage', title: '损耗%', dataIndex: 'wastage', width: 80,
       render: (_: unknown, r: Fabric, idx: number) => readOnly ? r.wastage : (
         <InputNumber size="small" value={r.wastage} onChange={(v) => updateFabric(idx, { wastage: v ?? 5 })} min={0} max={100} className="w-full" />
       ),
     },
     {
-      title: '单耗', width: 80,
+      key: 'consumption', title: '单耗', width: 80,
       render: (_: unknown, r: Fabric) => calcFabricConsumption(toFabricCalcInput(r)).toFixed(2),
     },
     {
-      title: '单价', dataIndex: 'unit_price', width: 90,
+      key: 'unit_price', title: '单价', dataIndex: 'unit_price', width: 90,
       render: (_: unknown, r: Fabric, idx: number) => readOnly ? toNum(r.unit_price).toFixed(2) : (
         <InputNumber size="small" value={r.unit_price} onChange={(v) => updateFabric(idx, { unit_price: v || 0 })} min={0} step={0.01} className="w-full" />
       ),
     },
     {
-      title: '金额', width: 80,
+      key: 'amount', title: '金额', width: 80,
       render: (_: unknown, r: Fabric) => {
         const input = toFabricCalcInput(r);
         const c = calcFabricConsumption(input);
         return (c * (r.unit_price || 0)).toFixed(2);
       },
     },
-    ...(!readOnly ? [{ title: '', width: 50, render: (_: unknown, __: Fabric, idx: number) => (
+    ...(!readOnly ? [{ key: 'action', title: '', width: 50, render: (_: unknown, __: Fabric, idx: number) => (
       <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeFabric(idx)} />
     )}] : []),
   ];
 
   const accessoryColumns = [
     {
-      title: '辅料', dataIndex: 'name', width: 160,
-      render: (_: unknown, __: Accessory, idx: number) => readOnly ? item.accessories?.[idx]?.name : (
-        <Select
-          showSearch
-          placeholder="选择辅料"
+      key: 'name', title: '辅料', dataIndex: 'name', width: 160,
+      render: (_: unknown, r: Accessory, idx: number) => readOnly ? r.name : (
+        <AutoComplete
           className="w-full"
-          value={item.accessories?.[idx]?.accessory_id}
-          onChange={(v) => selectAccessory(idx, v)}
-          loading={!optionsReady}
-          notFoundContent={fabricSelectNotFound}
-          options={accessoryOptions.map((o) => ({ value: o.value, label: o.label }))}
+          value={r.name || ''}
+          placeholder="输入搜索，回车确认"
+          options={optionsReady ? accessoryAutoCompleteOptions : []}
+          defaultActiveFirstOption
+          onSelect={(value) => selectAccessory(idx, Number(value))}
+          onChange={(text) => {
+            const linked = accessoryOptions.find((o) => o.value === r.accessory_id);
+            if (linked && linked.label !== text) {
+              updateAccessory(idx, { name: text, accessory_id: undefined });
+            } else {
+              updateAccessory(idx, { name: text });
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              e.stopPropagation();
+              commitAccessoryInput(idx, r.name || '');
+            }
+          }}
           filterOption={(input, option) => {
-            const opt = accessoryOptions.find((o) => o.value === option?.value);
+            const opt = accessoryOptions.find((o) => String(o.value) === option?.value);
             return opt?.label.toLowerCase().includes(input.toLowerCase()) ?? false;
           }}
+          notFoundContent={fabricSelectNotFound}
         />
       ),
     },
     {
-      title: '规格', dataIndex: 'specification', width: 140,
+      key: 'specification', title: '规格', dataIndex: 'specification', width: 140,
       render: (_: unknown, r: Accessory, idx: number) => readOnly ? r.specification : (
         <Input size="small" value={r.specification} onChange={(e) => updateAccessory(idx, { specification: e.target.value })} placeholder="如：3#拉链，铜色" />
       ),
     },
     {
-      title: '单耗', dataIndex: 'consumption', width: 80,
+      key: 'consumption', title: '单耗', dataIndex: 'consumption', width: 80,
       render: (_: unknown, r: Accessory, idx: number) => readOnly ? r.consumption : (
         <InputNumber size="small" value={r.consumption} onChange={(v) => updateAccessory(idx, { consumption: v ?? 1 })} min={0} step={0.01} className="w-full" />
       ),
     },
     {
-      title: '损耗%', dataIndex: 'wastage', width: 80,
+      key: 'wastage', title: '损耗%', dataIndex: 'wastage', width: 80,
       render: (_: unknown, r: Accessory, idx: number) => readOnly ? r.wastage : (
         <InputNumber size="small" value={r.wastage} onChange={(v) => updateAccessory(idx, { wastage: v ?? 5 })} min={0} max={100} className="w-full" />
       ),
     },
     {
-      title: '单价', dataIndex: 'unit_price', width: 90,
+      key: 'unit_price', title: '单价', dataIndex: 'unit_price', width: 90,
       render: (_: unknown, r: Accessory, idx: number) => readOnly ? toNum(r.unit_price).toFixed(2) : (
         <InputNumber size="small" value={r.unit_price} onChange={(v) => updateAccessory(idx, { unit_price: v || 0 })} min={0} step={0.01} className="w-full" />
       ),
     },
     {
-      title: '金额', width: 80,
+      key: 'amount', title: '金额', width: 80,
       render: (_: unknown, r: Accessory) => calcAccessoryAmount({
         consumption: r.consumption ?? 1, wastage: r.wastage ?? 5, unitPrice: r.unit_price || 0,
       }).toFixed(2),
     },
-    ...(!readOnly ? [{ title: '', width: 50, render: (_: unknown, __: Accessory, idx: number) => (
+    ...(!readOnly ? [{ key: 'action', title: '', width: 50, render: (_: unknown, __: Accessory, idx: number) => (
       <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeAccessory(idx)} />
     )}] : []),
   ];
+
+  const fabricColumnsResized = useMemo(
+    () => applyItemEditorColumnWidths(fabricColumns, fabricColWidths, FABRIC_COLUMN_DEFS, readOnly ? undefined : {
+      onResize: handleFabricColResize,
+      onResizeStop: handleFabricColResizeStop,
+    }),
+    [fabricColumns, fabricColWidths, readOnly, handleFabricColResize, handleFabricColResizeStop]
+  );
+
+  const accessoryColumnsResized = useMemo(
+    () => applyItemEditorColumnWidths(accessoryColumns, accessoryColWidths, ACCESSORY_COLUMN_DEFS, readOnly ? undefined : {
+      onResize: handleAccessoryColResize,
+      onResizeStop: handleAccessoryColResizeStop,
+    }),
+    [accessoryColumns, accessoryColWidths, readOnly, handleAccessoryColResize, handleAccessoryColResizeStop]
+  );
+
+  const fabricScrollX = useMemo(() => estimateItemEditorScrollX(fabricColumnsResized), [fabricColumnsResized]);
+  const accessoryScrollX = useMemo(() => estimateItemEditorScrollX(accessoryColumnsResized), [accessoryColumnsResized]);
 
   const header = (
     <div className="flex items-center justify-between w-full pr-4">
@@ -433,7 +527,16 @@ export default function ItemEditor({
                   <span className="text-sm font-medium text-gray-700">面料明细</span>
                   {!readOnly && <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addFabric}>添加面料</Button>}
                 </div>
-                <Table size="small" pagination={false} dataSource={item.fabrics || []} columns={fabricColumns} rowKey={(_, i) => `f-${i}`} scroll={{ x: 1300 }} />
+                <Table
+                  className="item-editor-table"
+                  size="small"
+                  pagination={false}
+                  dataSource={item.fabrics || []}
+                  columns={fabricColumnsResized}
+                  rowKey={(_, i) => `f-${i}`}
+                  scroll={{ x: fabricScrollX }}
+                  components={readOnly ? undefined : TABLE_HEADER_COMPONENTS}
+                />
               </div>
 
               <div>
@@ -441,7 +544,16 @@ export default function ItemEditor({
                   <span className="text-sm font-medium text-gray-700">辅料明细</span>
                   {!readOnly && <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addAccessory}>添加辅料</Button>}
                 </div>
-                <Table size="small" pagination={false} dataSource={item.accessories || []} columns={accessoryColumns} rowKey={(_, i) => `a-${i}`} scroll={{ x: 800 }} />
+                <Table
+                  className="item-editor-table"
+                  size="small"
+                  pagination={false}
+                  dataSource={item.accessories || []}
+                  columns={accessoryColumnsResized}
+                  rowKey={(_, i) => `a-${i}`}
+                  scroll={{ x: accessoryScrollX }}
+                  components={readOnly ? undefined : TABLE_HEADER_COMPONENTS}
+                />
               </div>
 
               <div>
