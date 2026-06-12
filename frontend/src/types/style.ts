@@ -34,6 +34,15 @@ export interface StyleRecord {
   outsourced_factory?: string;
   overseas_merchandiser?: string;
   outsourced_price?: number;
+  scheduling_zone?: 'wait' | 'group' | 'outsource' | 'offline';
+  sort_order?: number | null;
+  required_days?: number | null;
+  parent_style_id?: number | null;
+  scheduling_remarks?: string | null;
+  /** 母单：已排入各组/外发的累计数量 */
+  allocated_quantity?: number;
+  /** 母单：未排数量 */
+  unscheduled_quantity?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -84,6 +93,9 @@ export const STYLE_FIELD_LABELS: Record<string, string> = {
   outsourced_factory: '外发工厂',
   overseas_merchandiser: '海外跟单',
   outsourced_price: '外发价格',
+  scheduling_zone: '排单区位',
+  sort_order: '排单顺位',
+  required_days: '所需天数',
 };
 
 export const CLOSING_MONTH_OPTIONS = [

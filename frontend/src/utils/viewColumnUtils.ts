@@ -1,16 +1,35 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { ColumnsType } from 'antd/es/table';
 import type { ColumnPreferences } from '@/utils/quotationListColumnPrefs';
-import { clampColumnWidth } from '@/utils/quotationListColumnPrefs';
+import { clampColumnWidth, lockedColumnWidthStyle, resolveColumnWidth } from '@/utils/quotationListColumnPrefs';
 
 export interface ColumnResizeHandlers {
   onResize: (key: string, width: number) => void;
   onResizeStop: (key: string, width: number) => void;
 }
 
-function withColumnWidth<T>(col: T, key: string, widths: Record<string, number>): T {
-  const width = widths[key];
-  return width != null ? { ...col, width } : col;
+export interface ApplyViewColumnOptions {
+  resizeHandlers?: ColumnResizeHandlers;
+  /** 单元格水平对齐；左对齐时缩窄列宽会从右侧裁切，而非两侧向中间挤压 */
+  cellAlign?: 'left' | 'center';
+  /** 始终置于最前、不参与列设置的列（如行编辑按钮） */
+  prependKeys?: string[];
+  /** 完全按 prefs.order 排列（含 action、move_target 等），不强制 action 置尾 */
+  orderedTrailing?: boolean;
+}
+
+function normalizeApplyOptions(
+  options?: ColumnResizeHandlers | ApplyViewColumnOptions,
+): Required<Pick<ApplyViewColumnOptions, 'cellAlign' | 'prependKeys' | 'orderedTrailing'>> &
+  Pick<ApplyViewColumnOptions, 'resizeHandlers'> {
+  if (!options) return { cellAlign: 'center', prependKeys: [], orderedTrailing: false };
+  if ('onResize' in options) return { resizeHandlers: options, cellAlign: 'center', prependKeys: [], orderedTrailing: false };
+  return {
+    resizeHandlers: options.resizeHandlers,
+    cellAlign: options.cellAlign ?? 'center',
+    prependKeys: options.prependKeys ?? [],
+    orderedTrailing: options.orderedTrailing ?? false,
+  };
 }
 
 function attachResizeHandler<T>(
@@ -18,18 +37,22 @@ function attachResizeHandler<T>(
   key: string,
   widths: Record<string, number>,
   handlers?: ColumnResizeHandlers,
+  cellAlign: 'left' | 'center' = 'center',
 ): ColumnsType<T>[number] {
+  const colWidth = resolveColumnWidth(key, col.width as number | undefined, widths);
+  const locked = lockedColumnWidthStyle(colWidth);
   const next = {
-    align: 'center' as const,
-    ...withColumnWidth(col, key, widths),
-    onCell: () => ({ style: { textAlign: 'center' as const } }),
+    align: cellAlign,
+    ...col,
+    ...locked,
+    onCell: () => ({ style: { textAlign: cellAlign, ...locked } }),
   };
   if (!handlers) return next;
-  const colWidth = widths[key] ?? (typeof next.width === 'number' ? next.width : undefined);
   return {
     ...next,
     onHeaderCell: () => ({
       width: colWidth,
+      style: { textAlign: cellAlign, ...locked },
       onResize: (w: number) => handlers.onResize(key, w),
       onResizeStop: (w: number) => handlers.onResizeStop(key, w),
     }),
@@ -39,16 +62,27 @@ function attachResizeHandler<T>(
 export function applyViewColumnPreferences<T>(
   allColumns: ColumnsType<T>,
   prefs: ColumnPreferences,
-  resizeHandlers?: ColumnResizeHandlers,
+  options?: ColumnResizeHandlers | ApplyViewColumnOptions,
 ): ColumnsType<T> {
+  const { resizeHandlers, cellAlign, prependKeys, orderedTrailing } = normalizeApplyOptions(options);
   const map = new Map(allColumns.map((col) => [col.key as string, col]));
+  const prepended = prependKeys
+    .filter((key) => map.has(key))
+    .map((key) => attachResizeHandler(map.get(key)!, key, prefs.widths, resizeHandlers, cellAlign));
+  if (orderedTrailing) {
+    const ordered = prefs.order
+      .filter((key) => !prependKeys.includes(key) && prefs.visible[key] !== false && map.has(key))
+      .map((key) => attachResizeHandler(map.get(key)!, key, prefs.widths, resizeHandlers, cellAlign));
+    return [...prepended, ...ordered];
+  }
   const dataCols = prefs.order
-    .filter((key) => key !== 'action' && prefs.visible[key] !== false && map.has(key))
-    .map((key) => attachResizeHandler(map.get(key)!, key, prefs.widths, resizeHandlers));
+    .filter((key) => key !== 'action' && !prependKeys.includes(key) && prefs.visible[key] !== false && map.has(key))
+    .map((key) => attachResizeHandler(map.get(key)!, key, prefs.widths, resizeHandlers, cellAlign));
   const actionCol = map.get('action');
-  return actionCol
-    ? [...dataCols, attachResizeHandler(actionCol, 'action', prefs.widths, resizeHandlers)]
-    : dataCols;
+  const trailing = actionCol
+    ? [attachResizeHandler(actionCol, 'action', prefs.widths, resizeHandlers, cellAlign)]
+    : [];
+  return [...prepended, ...dataCols, ...trailing];
 }
 
 export function estimateScrollX(columns: ColumnsType<unknown>, extra = 48): number {

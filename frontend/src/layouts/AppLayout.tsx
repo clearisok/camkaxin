@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Layout, Menu, Button } from 'antd';
+import { memo, useEffect, useMemo, useState } from 'react';
+import { Layout, Menu, Button, ConfigProvider } from 'antd';
 import type { MenuProps } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -17,13 +17,34 @@ import {
 } from '@ant-design/icons';
 import BrandLogo from '@/components/BrandLogo';
 import SchedulingHeaderTabs from '@/components/SchedulingHeaderTabs';
+import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext';
 
 const { Sider, Header, Content } = Layout;
 
 const CONFIG_OPEN_KEY = 'config';
-const SIDER_WIDTH = 240;
+const SIDER_WIDTH = 260;
 const SIDER_COLLAPSED_WIDTH = 72;
-const SIDER_COLLAPSED_STORAGE_KEY = 'jiankai-app-sider-collapsed';
+
+const PAGE_TITLES: Record<string, string> = {
+  '/': '工作台',
+  '/quotations': '报价单管理',
+  '/scheduling': '预警排单',
+  '/config/agents': '业务员管理',
+  '/config/brands': '品牌管理',
+  '/config/fabrics': '面料库',
+  '/config/accessories': '辅料库',
+  '/config/settings': '系统设置',
+};
+
+function resolvePageTitle(pathname: string): string {
+  if (pathname.startsWith('/quotations/new')) return '新建报价单';
+  if (pathname.match(/^\/quotations\/\d+\/edit$/)) return '编辑报价单';
+  if (pathname.match(/^\/quotations\/\d+$/)) return '报价单详情';
+  if (pathname.startsWith('/scheduling/styles/new')) return '新建款式';
+  if (pathname.match(/^\/scheduling\/styles\/\d+$/)) return '款式详情';
+  const matched = NAV_KEYS.find((key) => key !== '/' && pathname.startsWith(key));
+  return matched ? (PAGE_TITLES[matched] ?? '柬凯内部系统') : '柬凯内部系统';
+}
 
 const NAV_KEYS = [
   '/config/accessories',
@@ -55,6 +76,17 @@ const menuItems: MenuProps['items'] = [
   { key: '/config/settings', icon: <SettingOutlined />, label: '系统设置' },
 ];
 
+const siderMenuTheme = {
+  components: {
+    Menu: {
+      collapsedWidth: SIDER_COLLAPSED_WIDTH,
+      motionDurationSlow: '0.12s',
+      motionDurationMid: '0.12s',
+      motionDurationFast: '0.08s',
+    },
+  },
+};
+
 function resolveSelectedKey(pathname: string): string {
   if (pathname === '/' || pathname === '') return '/';
   if (pathname.startsWith('/scheduling')) return '/scheduling';
@@ -68,25 +100,35 @@ function isConfigChildPath(pathname: string): boolean {
   );
 }
 
-export default function AppLayout() {
+function SidebarToggle() {
+  const { collapsed, toggleCollapsed } = useSidebar();
+
+  return (
+    <Button
+      type="text"
+      className="app-sidebar-toggle shrink-0"
+      icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+      onClick={toggleCollapsed}
+      aria-label={collapsed ? '展开菜单' : '收起菜单'}
+    />
+  );
+}
+
+function AppSider() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { collapsed } = useSidebar();
 
   const selectedKey = useMemo(
     () => resolveSelectedKey(location.pathname),
     [location.pathname]
   );
 
-  const [collapsed, setCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem(SIDER_COLLAPSED_STORAGE_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-
   const [openKeys, setOpenKeys] = useState<string[]>(() =>
     isConfigChildPath(location.pathname) ? [CONFIG_OPEN_KEY] : []
+  );
+  const [menuOpenKeys, setMenuOpenKeys] = useState(() =>
+    collapsed ? [] : openKeys
   );
 
   useEffect(() => {
@@ -95,79 +137,86 @@ export default function AppLayout() {
     }
   }, [location.pathname]);
 
+  useEffect(() => {
+    setMenuOpenKeys(collapsed ? [] : openKeys);
+  }, [collapsed, openKeys]);
+
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     if (key === CONFIG_OPEN_KEY || !key.startsWith('/')) return;
     navigate(key);
   };
 
-  const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(SIDER_COLLAPSED_STORAGE_KEY, next ? '1' : '0');
-      } catch { /* ignore */ }
-      return next;
-    });
-  };
-
-  const siderWidth = collapsed ? SIDER_COLLAPSED_WIDTH : SIDER_WIDTH;
-  const showSchedulingTabs = location.pathname === '/scheduling';
-
   return (
-    <Layout className="h-screen overflow-hidden">
-      <Sider
-        width={SIDER_WIDTH}
-        collapsedWidth={SIDER_COLLAPSED_WIDTH}
-        collapsed={collapsed}
-        theme="dark"
-        trigger={null}
-        className="shadow-lg !fixed left-0 top-0 bottom-0 z-10 flex flex-col app-sider"
-        style={{ height: '100vh' }}
+    <Sider
+      width={SIDER_WIDTH}
+      collapsedWidth={SIDER_COLLAPSED_WIDTH}
+      collapsed={collapsed}
+      theme="dark"
+      trigger={null}
+      className="shadow-lg !fixed left-0 top-0 bottom-0 z-10 flex flex-col app-sider"
+      style={{ height: '100vh' }}
+    >
+      <div
+        className={`app-sider-brand h-16 flex-shrink-0 flex items-center justify-center border-b border-white/10 ${collapsed ? 'is-collapsed' : ''}`}
       >
-        <div className={`h-16 flex-shrink-0 flex items-center justify-center border-b border-white/10 ${collapsed ? 'px-2' : 'px-4'}`}>
-          <BrandLogo
-            variant={collapsed ? 'sidebar-collapsed' : 'sidebar'}
-            showName={!collapsed}
-          />
-        </div>
-        <div className="flex-1 overflow-y-auto overflow-x-hidden">
+        <BrandLogo variant="sidebar" showName collapsed={collapsed} />
+      </div>
+      <div className="app-sidebar-scroll flex-1 overflow-y-auto overflow-x-hidden">
+        <ConfigProvider theme={siderMenuTheme}>
           <Menu
             theme="dark"
             mode="inline"
             inlineCollapsed={collapsed}
             selectedKeys={[selectedKey]}
-            openKeys={collapsed ? [] : openKeys}
-            onOpenChange={setOpenKeys}
+            openKeys={menuOpenKeys}
+            onOpenChange={(keys) => {
+              setOpenKeys(keys);
+              if (!collapsed) setMenuOpenKeys(keys);
+            }}
             items={menuItems}
             onClick={handleMenuClick}
             className="border-none mt-2 app-sidebar-menu"
           />
-        </div>
-      </Sider>
-      <Layout
-        className="h-screen flex flex-col transition-all duration-200 app-main-layout"
-        style={{
-          marginLeft: siderWidth,
-          width: `calc(100vw - ${siderWidth}px)`,
-          ['--app-sider-width' as string]: `${siderWidth}px`,
-        }}
-      >
-        <Header className="bg-white px-4 md:px-6 shadow-sm flex items-center h-14 flex-shrink-0 leading-[56px]">
-          <div className="app-header-inner">
-            <Button
-              type="text"
-              className="!text-gray-500 shrink-0"
-              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={toggleCollapsed}
-              aria-label={collapsed ? '展开菜单' : '收起菜单'}
-            />
-            {showSchedulingTabs && <SchedulingHeaderTabs />}
+        </ConfigProvider>
+      </div>
+    </Sider>
+  );
+}
+
+const AppMain = memo(function AppMain() {
+  const location = useLocation();
+  const showSchedulingTabs = location.pathname === '/scheduling';
+  const pageTitle = useMemo(() => resolvePageTitle(location.pathname), [location.pathname]);
+
+  return (
+    <Layout className="h-screen flex flex-col app-main-layout">
+      <Header className={`app-top-header${showSchedulingTabs ? ' has-view-switcher' : ''}`}>
+        <div className="app-header-inner">
+          <SidebarToggle />
+          <div className="app-header-leading">
+            <h1 className="app-header-title">{pageTitle}</h1>
+            {showSchedulingTabs && (
+              <div className="app-header-switcher">
+                <SchedulingHeaderTabs />
+              </div>
+            )}
           </div>
-        </Header>
-        <Content className="bg-[#f8fafc] flex-1 overflow-y-auto">
-          <Outlet />
-        </Content>
-      </Layout>
+        </div>
+      </Header>
+      <Content className="app-main-content flex-1 overflow-y-auto">
+        <Outlet />
+      </Content>
     </Layout>
+  );
+});
+
+export default function AppLayout() {
+  return (
+    <SidebarProvider>
+      <Layout className="h-screen overflow-hidden">
+        <AppSider />
+        <AppMain />
+      </Layout>
+    </SidebarProvider>
   );
 }

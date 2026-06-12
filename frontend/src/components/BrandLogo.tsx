@@ -6,6 +6,8 @@ interface BrandLogoProps {
   variant?: BrandLogoVariant;
   className?: string;
   showName?: boolean;
+  /** 侧栏折叠动画（与 Ant Design Sider 同步，勿切换 variant） */
+  collapsed?: boolean;
 }
 
 const variantClass: Record<BrandLogoVariant, string> = {
@@ -21,11 +23,25 @@ export default function BrandLogo({
   variant = 'page',
   className = '',
   showName = false,
+  collapsed = false,
 }: BrandLogoProps) {
+  const isSidebar = variant === 'sidebar' || variant === 'sidebar-collapsed';
+  const wrapClass = [
+    'brand-logo-wrap',
+    isSidebar ? 'brand-logo-sidebar' : variantClass[variant],
+    isSidebar && collapsed ? 'is-collapsed' : '',
+    className,
+  ].filter(Boolean).join(' ');
+
   return (
-    <div className={`brand-logo-wrap ${variantClass[variant]} ${className}`.trim()}>
+    <div className={wrapClass}>
       <img src={BRAND_LOGO_SRC} alt={BRAND_NAME} className="brand-logo-img" draggable={false} />
-      {showName && variant !== 'sidebar-collapsed' && (
+      {showName && isSidebar && (
+        <span className="brand-logo-name-slot" aria-hidden={collapsed}>
+          <span className="brand-logo-name">{APP_SYSTEM_NAME}</span>
+        </span>
+      )}
+      {showName && !isSidebar && (
         <span className="brand-logo-name">{APP_SYSTEM_NAME}</span>
       )}
     </div>

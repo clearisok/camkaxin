@@ -16,9 +16,12 @@ interface TableColumnSettingsProps {
   onChange: (prefs: ColumnPreferences) => void;
   /** 传入则写入对应存储；不传则沿用报价单列表的 localStorage */
   onPersist?: (prefs: ColumnPreferences) => void;
+  buttonLabel?: string;
 }
 
-export default function TableColumnSettings({ columns, value, onChange, onPersist }: TableColumnSettingsProps) {
+export default function TableColumnSettings({
+  columns, value, onChange, onPersist, buttonLabel = '列设置',
+}: TableColumnSettingsProps) {
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -138,7 +141,7 @@ export default function TableColumnSettings({ columns, value, onChange, onPersis
       onOpenChange={setOpen}
       placement="bottomRight"
     >
-      <Button icon={<SettingOutlined />}>列设置</Button>
+      <Button icon={<SettingOutlined />}>{buttonLabel}</Button>
     </Popover>
   );
 }

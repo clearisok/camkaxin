@@ -10,6 +10,8 @@ import {
   getMonthlySummary,
   seedStylesIfEmpty,
 } from '../services/styleService.js';
+import { fillEarlyWarningGaps } from '../services/fillEarlyWarningGaps.js';
+import { scheduleStyle } from '../services/scheduleStyle.js';
 
 const router = Router();
 
@@ -43,6 +45,15 @@ router.get('/monthly-summary', async (_req: Request, res: Response) => {
   try {
     const data = await getMonthlySummary();
     res.json({ data });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+router.post('/fill-gaps', async (_req: Request, res: Response) => {
+  try {
+    const result = await fillEarlyWarningGaps('fill-early-warning-gaps');
+    res.json({ data: result });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
@@ -95,6 +106,29 @@ router.get('/:id', async (req: Request, res: Response) => {
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: String(err) });
+  }
+});
+
+router.post('/:id/schedule', async (req: Request, res: Response) => {
+  try {
+    const id = parseId(req.params.id);
+    const { changed_by, ...body } = req.body as Record<string, unknown>;
+    const data = await scheduleStyle(
+      id,
+      body as {
+        schedule_qty: number;
+        required_days: number;
+        is_outsourced: boolean;
+        group_name?: string | null;
+        outsourced_factory?: string | null;
+        outsourced_price?: number | null;
+        scheduling_remarks?: string | null;
+      },
+      (changed_by as string) || 'schedule-style',
+    );
+    res.json({ data });
+  } catch (err) {
+    res.status(400).json({ error: String(err) });
   }
 });
 

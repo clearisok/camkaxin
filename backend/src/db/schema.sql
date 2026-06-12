@@ -241,6 +241,11 @@ CREATE TABLE IF NOT EXISTS styles (
   outsourced_factory VARCHAR(200),
   overseas_merchandiser VARCHAR(100),
   outsourced_price DECIMAL(12,2),
+  scheduling_zone VARCHAR(20) DEFAULT 'wait',
+  sort_order INTEGER,
+  required_days INTEGER,
+  parent_style_id INTEGER REFERENCES styles(id) ON DELETE CASCADE,
+  scheduling_remarks TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -256,6 +261,9 @@ CREATE TABLE IF NOT EXISTS style_histories (
 CREATE INDEX IF NOT EXISTS idx_styles_closing_month ON styles(closing_month);
 CREATE INDEX IF NOT EXISTS idx_styles_group_name ON styles(group_name);
 CREATE INDEX IF NOT EXISTS idx_styles_online_time ON styles(online_time);
+CREATE INDEX IF NOT EXISTS idx_styles_scheduling_zone ON styles(scheduling_zone);
+CREATE INDEX IF NOT EXISTS idx_styles_zone_group_sort ON styles(scheduling_zone, group_name, sort_order);
+CREATE INDEX IF NOT EXISTS idx_styles_parent_style_id ON styles(parent_style_id);
 CREATE INDEX IF NOT EXISTS idx_style_histories_style_id ON style_histories(style_id);
 CREATE INDEX IF NOT EXISTS idx_item_fabrics_item ON item_fabrics(item_id);
 CREATE INDEX IF NOT EXISTS idx_item_accessories_item ON item_accessories(item_id);

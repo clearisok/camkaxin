@@ -1,4 +1,9 @@
-export const GROUP_OPTIONS = ['A组', 'B组', 'C组', 'D组'];
+import { PRODUCTION_GROUP_IDS } from '@/utils/schedulingZone';
+
+export { PRODUCTION_GROUP_IDS };
+
+/** 表单/内联组别下拉（不含外发，外发走独立区位） */
+export const GROUP_OPTIONS = [...PRODUCTION_GROUP_IDS];
 
 export const READINESS_OPTIONS = [
   { value: '未到', label: '未到' },

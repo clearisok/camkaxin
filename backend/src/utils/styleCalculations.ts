@@ -1,3 +1,5 @@
+import { isAwaitingSchedule } from '../services/styleAllocation.js';
+
 export interface StyleRow {
   id?: number;
   online_time?: string | Date | null;
@@ -48,8 +50,13 @@ export function calcSalesOutputValue(quantity: unknown, salesPrice: unknown): nu
 export function enrichStyle(row: StyleRow): StyleRow {
   const days = calcDays(row.online_time, row.offline_time);
   const output_ratio = calcOutputRatio(row.scheduled_output, row.avg_daily_output);
-  const processing_output_value = calcProcessingOutputValue(row.quantity, row.processing_unit_price);
-  const sales_output_value = calcSalesOutputValue(row.quantity, row.sales_price);
+  const isChild = row.parent_style_id != null;
+  const processing_output_value = isChild
+    ? null
+    : calcProcessingOutputValue(row.quantity, row.processing_unit_price);
+  const sales_output_value = isChild
+    ? null
+    : calcSalesOutputValue(row.quantity, row.sales_price);
   return {
     ...row,
     days,
@@ -60,7 +67,12 @@ export function enrichStyle(row: StyleRow): StyleRow {
 }
 
 export function isUnscheduled(row: StyleRow): boolean {
-  return !row.group_name || !row.online_time;
+  return isAwaitingSchedule(row as StyleRow & {
+    parent_style_id?: unknown;
+    scheduling_zone?: string | null;
+    group_name?: string | null;
+    unscheduled_quantity?: number;
+  });
 }
 
 export const EDITABLE_STYLE_FIELDS = [
@@ -70,4 +82,5 @@ export const EDITABLE_STYLE_FIELDS = [
   'avg_daily_output', 'group_name', 'short_over_shipment', 'quantity', 'processing_unit_price',
   'sales_price', 'printing_embroidery', 'order_follower', 'required_shipping_date', 'remarks',
   'is_outsourced', 'outsourced_factory', 'overseas_merchandiser', 'outsourced_price',
+  'scheduling_zone', 'sort_order', 'required_days', 'parent_style_id', 'scheduling_remarks',
 ] as const;

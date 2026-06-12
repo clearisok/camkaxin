@@ -11,7 +11,11 @@
     "test:watch": "vitest",
     "db:init": "tsx src/db/init.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "db:migrate": "tsx src/db/migrate.ts"
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:import-warning": "tsx scripts/import-cambodia-warning.ts",
+    "db:fill-warning": "tsx scripts/fill-early-warning-gaps.ts",
+    "db:seed-scheduling": "tsx scripts/seed-scheduling-demo.ts",
+    "db:prune-shipping": "tsx scripts/prune-shipping-date-seed.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

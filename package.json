@@ -9,10 +9,14 @@
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
     "build": "cd backend && npm run build && cd ../frontend && npm run build",
+    "build:all": "cd backend && npm run build && cd ../frontend && npm run build",
+    "start:prod": "cd backend && npm start",
     "test": "cd backend && npm test",
     "db:init": "cd backend && npm run db:init",
     "db:seed": "cd backend && npm run db:seed",
-    "db:migrate": "cd backend && npm run db:migrate"
+    "db:migrate": "cd backend && npm run db:migrate",
+    "db:seed-scheduling": "cd backend && npm run db:seed-scheduling",
+    "db:prune-shipping": "cd backend && npm run db:prune-shipping"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

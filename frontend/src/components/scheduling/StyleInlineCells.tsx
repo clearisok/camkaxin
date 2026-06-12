@@ -2,7 +2,8 @@ import { Input, InputNumber, Select, DatePicker, Switch } from 'antd';
 import dayjs from 'dayjs';
 import type { Brand } from '@/types';
 import type { StyleRecord } from '@/types/style';
-import { CLOSING_MONTH_OPTIONS } from '@/types/style';
+import ClosingMonthSelect from '@/components/scheduling/ClosingMonthSelect';
+import { defaultClosingMonth } from '@/utils/schedulingFilters';
 import { GROUP_OPTIONS, SHORT_OVER_OPTIONS } from '@/utils/styleFieldOptions';
 
 interface CellProps {
@@ -117,14 +118,22 @@ export function StyleTextAreaCell({
   );
 }
 
-const CLOSING_MONTH_SELECT_OPTIONS = CLOSING_MONTH_OPTIONS.map((m) => ({ value: m, label: m }));
-
-export function StyleClosingMonthCell(props: CellProps) {
+export function StyleClosingMonthCell({
+  record, field, updateLocal, saveField, savingId,
+}: CellProps) {
+  const value = record[field] as string | undefined;
   return (
-    <StyleSelectCell
-      {...props}
-      options={CLOSING_MONTH_SELECT_OPTIONS}
+    <ClosingMonthSelect
+      size="small"
+      className="scheduling-inline-input w-full"
+      value={value || undefined}
       placeholder="关账月份"
+      scrollToMonth={record.closing_month || defaultClosingMonth()}
+      onChange={(val) => {
+        updateLocal(record.id, { [field]: val } as Partial<StyleRecord>);
+        saveField(record.id, { [field]: val ?? null });
+      }}
+      loading={savingId === record.id}
     />
   );
 }

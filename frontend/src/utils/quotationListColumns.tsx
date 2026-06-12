@@ -4,7 +4,11 @@ import { Tag, Button, Space, Popconfirm, Image, Tooltip } from 'antd';
 import {
   CopyOutlined, EditOutlined, DeleteOutlined, ExportOutlined, EyeOutlined,
 } from '@ant-design/icons';
-import { QUOTATION_LIST_COLUMN_DEFS } from '@/utils/quotationListColumnPrefs';
+import {
+  QUOTATION_LIST_COLUMN_DEFS,
+  lockedColumnWidthStyle,
+  resolveColumnWidth,
+} from '@/utils/quotationListColumnPrefs';
 
 const DEFAULT_WIDTHS = Object.fromEntries(
   QUOTATION_LIST_COLUMN_DEFS.map((c) => [c.key, c.defaultWidth])
@@ -120,11 +124,6 @@ export function buildQuotationListColumns(handlers: QuotationListColumnHandlers)
   ];
 }
 
-function withColumnWidth<T>(col: T, key: string, widths: Record<string, number>): T {
-  const width = widths[key];
-  return width != null ? { ...col, width } : col;
-}
-
 export interface ColumnResizeHandlers {
   onResize: (key: string, width: number) => void;
   onResizeStop: (key: string, width: number) => void;
@@ -136,17 +135,20 @@ function attachResizeHandler(
   widths: Record<string, number>,
   handlers?: ColumnResizeHandlers
 ): ColumnsType<Quotation>[number] {
+  const colWidth = resolveColumnWidth(key, col.width as number | undefined, widths);
+  const locked = lockedColumnWidthStyle(colWidth);
   const next = {
     align: 'center' as const,
-    ...withColumnWidth(col, key, widths),
-    onCell: () => ({ style: { textAlign: 'center' as const } }),
+    ...col,
+    ...locked,
+    onCell: () => ({ style: { textAlign: 'center' as const, ...locked } }),
   };
   if (!handlers) return next;
-  const colWidth = widths[key] ?? (typeof next.width === 'number' ? next.width : undefined);
   return {
     ...next,
     onHeaderCell: () => ({
       width: colWidth,
+      style: locked,
       onResize: (w: number) => handlers.onResize(key, w),
       onResizeStop: (w: number) => handlers.onResizeStop(key, w),
     }),

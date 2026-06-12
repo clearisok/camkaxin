@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Table, Button, Input, Select, Space, message, Popconfirm, Modal, Checkbox, Input as AntInput } from 'antd';
 import { PlusOutlined, FileExcelOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import FilterField from '@/components/FilterField';
+import PageHeader from '@/components/PageHeader';
 import TableColumnSettings from '@/components/TableColumnSettings';
 import ResizableTableHeader from '@/components/ResizableTableHeader';
 import {
@@ -224,48 +226,66 @@ export default function QuotationList() {
 
   return (
     <div className="page-container">
+      <PageHeader
+        title="报价单列表"
+        description="按品牌、业务员或状态筛选；支持批量导出汇总 Excel"
+        extra={(
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/quotations/new')}>
+            新建报价单
+          </Button>
+        )}
+      />
+
       <div className="card-panel mb-4">
-        <Space wrap className="w-full justify-between">
-          <Space wrap>
-            <Input.Search
-              placeholder="搜索报价单号/品牌/款号"
-              allowClear
-              style={{ width: 240 }}
-              onSearch={handleSearch}
-            />
-            <Select
-              placeholder="品牌"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              style={{ width: 140 }}
-              value={brandId}
-              onChange={(v) => {
-                setBrandId(v);
-                setAgentName(undefined);
-                setPage(1);
-              }}
-              options={brands.map((b) => ({ value: b.id, label: b.name }))}
-            />
-            <Select
-              placeholder="业务员"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              style={{ width: 130 }}
-              value={agentName}
-              onChange={(v) => { setAgentName(v); setPage(1); }}
-              options={agentOptions}
-            />
-            <Select
-              placeholder="状态"
-              allowClear
-              style={{ width: 120 }}
-              value={status}
-              onChange={(v) => { setStatus(v); setPage(1); }}
-              options={Object.entries(statusMap).map(([k, v]) => ({ value: k, label: v.text }))}
-            />
-          </Space>
+        <Space wrap className="w-full justify-between" align="end">
+          <div className="filter-toolbar">
+            <FilterField label="搜索">
+              <Input.Search
+                placeholder="报价单号 / 品牌 / 款号"
+                allowClear
+                style={{ width: 260 }}
+                onSearch={handleSearch}
+              />
+            </FilterField>
+            <FilterField label="品牌">
+              <Select
+                placeholder="全部"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                style={{ width: 150 }}
+                value={brandId}
+                onChange={(v) => {
+                  setBrandId(v);
+                  setAgentName(undefined);
+                  setPage(1);
+                }}
+                options={brands.map((b) => ({ value: b.id, label: b.name }))}
+              />
+            </FilterField>
+            <FilterField label="业务员">
+              <Select
+                placeholder="全部"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                style={{ width: 140 }}
+                value={agentName}
+                onChange={(v) => { setAgentName(v); setPage(1); }}
+                options={agentOptions}
+              />
+            </FilterField>
+            <FilterField label="状态">
+              <Select
+                placeholder="全部"
+                allowClear
+                style={{ width: 130 }}
+                value={status}
+                onChange={(v) => { setStatus(v); setPage(1); }}
+                options={Object.entries(statusMap).map(([k, v]) => ({ value: k, label: v.text }))}
+              />
+            </FilterField>
+          </div>
           <Space wrap>
             <Button
               icon={<FileExcelOutlined />}
@@ -273,9 +293,6 @@ export default function QuotationList() {
               onClick={handleSummaryExport}
             >
               导出汇总 {selectedRowKeys.length > 0 && `(${selectedRowKeys.length})`}
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/quotations/new')}>
-              新建报价单
             </Button>
             <TableColumnSettings
               columns={QUOTATION_LIST_COLUMN_DEFS}
@@ -290,6 +307,7 @@ export default function QuotationList() {
         <Table
           className="quotation-list-table"
           rowKey="id"
+          tableLayout="fixed"
           components={TABLE_HEADER_COMPONENTS}
           rowSelection={{
             selectedRowKeys,

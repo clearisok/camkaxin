@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  Form, Input, InputNumber, Button, message, Spin,
+  Form, Input, InputNumber, Button, message, Modal, Spin,
 } from 'antd';
 import { SaveOutlined, HistoryOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -41,15 +41,41 @@ const emptyForm = (): Partial<StyleRecord> => ({
   is_outsourced: false,
 });
 
+const FORM_DATE_FIELDS = [
+  'required_shipping_date',
+  'first_bed_time',
+  'online_time',
+  'offline_time',
+] as const;
+
+function serializeFormValues(values: Record<string, unknown>): string {
+  const normalized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined) continue;
+    if ((FORM_DATE_FIELDS as readonly string[]).includes(key) && value && dayjs.isDayjs(value)) {
+      normalized[key] = (value as dayjs.Dayjs).format('YYYY-MM-DD');
+    } else {
+      normalized[key] = value;
+    }
+  }
+  return JSON.stringify(normalized);
+}
+
 export default function StyleForm() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const schedulingListPath = (location.state as { schedulingTab?: string } | null)?.schedulingTab === 'early_warning'
+    ? '/scheduling?tab=early_warning'
+    : '/scheduling';
   const isNew = !id || id === 'new';
   const [form] = Form.useForm<StyleRecord>();
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [leaveModalOpen, setLeaveModalOpen] = useState(false);
   const [styleLabel, setStyleLabel] = useState<string>();
+  const baselineRef = useRef('');
   const [brands, setBrands] = useState<Brand[]>([]);
   const [brandAgents, setBrandAgents] = useState<BrandLinkedAgent[]>([]);
 
@@ -119,6 +145,10 @@ export default function StyleForm() {
     form.setFieldValue('closing_month', dayjs(requiredShippingDate).format('YYYY-MM'));
   }, [isNew, requiredShippingDate, form]);
 
+  const syncBaseline = useCallback(() => {
+    baselineRef.current = serializeFormValues(form.getFieldsValue(true));
+  }, [form]);
+
   useEffect(() => {
     if (isNew) return;
     setLoading(true);
@@ -133,14 +163,25 @@ export default function StyleForm() {
           offline_time: data.offline_time ? dayjs(data.offline_time) : undefined,
           required_shipping_date: data.required_shipping_date ? dayjs(data.required_shipping_date) : undefined,
         } as unknown as StyleRecord);
+        window.setTimeout(syncBaseline, 0);
       })
       .catch((err) => message.error(String(err)))
       .finally(() => setLoading(false));
-  }, [id, isNew, form]);
+  }, [id, isNew, form, syncBaseline]);
+
+  useEffect(() => {
+    if (loading || !isNew) return;
+    const timer = window.setTimeout(syncBaseline, 0);
+    return () => window.clearTimeout(timer);
+  }, [loading, isNew, syncBaseline]);
 
   const formatDateField = (v: unknown) => (v ? dayjs(v as string).format('YYYY-MM-DD') : null);
 
-  const handleSave = async () => {
+  const isDirty = useCallback(() => {
+    return serializeFormValues(form.getFieldsValue(true)) !== baselineRef.current;
+  }, [form]);
+
+  const saveForm = async (options?: { afterCreate?: 'detail' | 'list' }): Promise<boolean> => {
     try {
       const values = await form.validateFields();
       const payload: Record<string, unknown> = {
@@ -152,17 +193,49 @@ export default function StyleForm() {
       if (isNew) {
         const res = await createStyle(payload);
         message.success('款式预警已创建');
-        navigate(`/scheduling/styles/${res.data.id}`, { replace: true });
+        if (options?.afterCreate === 'list') {
+          navigate(schedulingListPath);
+        } else {
+          navigate(`/scheduling/styles/${res.data.id}`, { replace: true, state: location.state });
+        }
       } else {
         await updateStyle(Number(id), payload);
         message.success('保存成功');
         setStyleLabel(values.style_number);
+        syncBaseline();
       }
+      return true;
     } catch (err) {
-      if (err && typeof err === 'object' && 'errorFields' in err) return;
+      if (err && typeof err === 'object' && 'errorFields' in err) return false;
       message.error(String(err));
+      return false;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSave = () => {
+    void saveForm();
+  };
+
+  const handleBack = () => {
+    if (!isDirty()) {
+      navigate(schedulingListPath);
+      return;
+    }
+    setLeaveModalOpen(true);
+  };
+
+  const handleDiscardAndLeave = () => {
+    setLeaveModalOpen(false);
+    navigate(schedulingListPath);
+  };
+
+  const handleSaveAndLeave = async () => {
+    const ok = await saveForm({ afterCreate: 'list' });
+    if (ok) {
+      setLeaveModalOpen(false);
+      if (!isNew) navigate(schedulingListPath);
     }
   };
 
@@ -175,7 +248,7 @@ export default function StyleForm() {
       <PageHeader
         title={isNew ? '新建款式预警' : '款式详情'}
         subtitle={styleLabel}
-        onBack={() => navigate('/scheduling')}
+        onBack={handleBack}
         extra={(
           <>
             {!isNew && (
@@ -199,69 +272,61 @@ export default function StyleForm() {
         <div className="card-panel quotation-basic-panel">
           <FormSection title="基本信息">
             <div className="style-form-basic-layout">
-              <div className="style-form-basic-fields">
-                <div className="style-form-basic-row">
-                  <Form.Item
-                    name="style_number"
-                    label="款号"
-                    className="style-form-flex-field"
-                    rules={[{ required: true, message: '请输入款号' }]}
-                  >
-                    <AutoFitInput placeholder="款号" />
-                  </Form.Item>
-                  <Form.Item name="brand" label="品牌" className="style-form-flex-field">
-                    <AutoFitSelect
-                      showSearch
-                      allowClear
-                      placeholder="选择品牌"
-                      options={brandOptions}
-                      filterOption={(input, option) =>
-                        String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                      }
-                    />
-                  </Form.Item>
-                  <Form.Item name="quantity" label="数量" className="style-form-flex-field">
-                    <AutoFitInputNumber min={0} placeholder="数量" />
-                  </Form.Item>
-                  <Form.Item name="style_name" label="款式名称" className="style-form-flex-field">
-                    <AutoFitInput placeholder="款式名称" />
-                  </Form.Item>
-                </div>
-                <div className="style-form-basic-row">
-                  <Form.Item name="salesperson" label="业务员" className="style-form-flex-field">
-                    <AutoFitSelect
-                      allowClear
-                      placeholder={selectedBrand ? '选择业务员' : '请先选择品牌'}
-                      disabled={!selectedBrand || brandAgents.length === 0}
-                      options={agentOptions}
-                    />
-                  </Form.Item>
-                  <Form.Item name="po_number" label="PO号" className="style-form-flex-field">
-                    <AutoFitInput placeholder="PO号" />
-                  </Form.Item>
-                  <Form.Item name="required_shipping_date" label="要求出货日" className="style-form-flex-field">
-                    <AutoFitDatePicker placeholder="要求出货日" />
-                  </Form.Item>
-                  <Form.Item name="closing_month" label="关账月份" className="style-form-flex-field">
-                    <AutoFitSelect
-                      allowClear
-                      placeholder="选择月份"
-                      options={closingMonthOptions}
-                    />
-                  </Form.Item>
-                </div>
-                <Form.Item name="remarks" label="备注" className="style-form-remarks-field">
-                  <Input.TextArea
-                    placeholder="备注信息"
-                    autoSize={{ minRows: 1, maxRows: 8 }}
-                  />
-                </Form.Item>
-              </div>
-              <div className="style-form-basic-image">
-                <Form.Item name="style_image" label={null} className="style-form-image-item">
-                  <StyleImageFormField />
-                </Form.Item>
-              </div>
+              <Form.Item
+                name="style_number"
+                label="款号"
+                className="style-form-grid-field"
+                rules={[{ required: true, message: '请输入款号' }]}
+              >
+                <AutoFitInput placeholder="款号" />
+              </Form.Item>
+              <Form.Item name="brand" label="品牌" className="style-form-grid-field">
+                <AutoFitSelect
+                  showSearch
+                  allowClear
+                  placeholder="选择品牌"
+                  options={brandOptions}
+                  filterOption={(input, option) =>
+                    String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                />
+              </Form.Item>
+              <Form.Item name="quantity" label="数量" className="style-form-grid-field">
+                <AutoFitInputNumber min={0} placeholder="数量" />
+              </Form.Item>
+              <Form.Item name="style_name" label="款式名称" className="style-form-grid-field">
+                <AutoFitInput placeholder="款式名称" />
+              </Form.Item>
+              <Form.Item name="salesperson" label="业务员" className="style-form-grid-field">
+                <AutoFitSelect
+                  allowClear
+                  placeholder={selectedBrand ? '选择业务员' : '请先选择品牌'}
+                  disabled={!selectedBrand || brandAgents.length === 0}
+                  options={agentOptions}
+                />
+              </Form.Item>
+              <Form.Item name="po_number" label="PO号" className="style-form-grid-field">
+                <AutoFitInput placeholder="PO号" />
+              </Form.Item>
+              <Form.Item name="required_shipping_date" label="要求出货日" className="style-form-grid-field">
+                <AutoFitDatePicker placeholder="要求出货日" />
+              </Form.Item>
+              <Form.Item name="closing_month" label="关账月份" className="style-form-grid-field">
+                <AutoFitSelect
+                  allowClear
+                  placeholder="选择月份"
+                  options={closingMonthOptions}
+                />
+              </Form.Item>
+              <Form.Item name="style_image" label="款式图" className="style-form-grid-image style-form-image-item">
+                <StyleImageFormField />
+              </Form.Item>
+              <Form.Item name="remarks" label="备注" className="style-form-remarks-field style-form-grid-field">
+                <Input.TextArea
+                  placeholder="备注信息"
+                  autoSize={{ minRows: 1, maxRows: 4 }}
+                />
+              </Form.Item>
             </div>
           </FormSection>
 
@@ -310,6 +375,25 @@ export default function StyleForm() {
           </FormSection>
         </div>
       </Form>
+
+      <Modal
+        title="未保存的更改"
+        open={leaveModalOpen}
+        onCancel={() => setLeaveModalOpen(false)}
+        footer={[
+          <Button key="stay" onClick={() => setLeaveModalOpen(false)}>
+            继续编辑
+          </Button>,
+          <Button key="discard" onClick={handleDiscardAndLeave}>
+            不保存
+          </Button>,
+          <Button key="save" type="primary" loading={saving} onClick={() => void handleSaveAndLeave()}>
+            保存并返回
+          </Button>,
+        ]}
+      >
+        当前有未保存的修改，是否保存后再离开？
+      </Modal>
 
       {!isNew && (
         <StyleHistoryDrawer

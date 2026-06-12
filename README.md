@@ -153,6 +153,22 @@ jiankai-quotation/
 
 表示之前已创建过同名容器。可执行 `docker start jiankai-postgres` 直接启动；若需按当前 `docker-compose.yml` 重建（例如更换端口映射），则先 `docker rm -f jiankai-postgres` 再 `docker compose up -d`。删除容器不会删除 `postgres_data` 数据卷中的数据。
 
+## 生产环境部署（推荐给用户使用）
+
+开发模式（`npm run dev`）较慢，正式使用请构建后以生产模式运行：
+
+```bash
+docker compose up -d
+npm run build:all
+npm run start:prod
+```
+
+浏览器访问 **http://localhost:3001**（后端同时托管前端静态资源）。
+
+确认 `backend/.env` 中：
+- `DATABASE_URL` 使用端口 **5433**
+- `STATIC_DIR=../frontend/dist`（构建后生效）
+
 ## 运行测试
 
 ```bash

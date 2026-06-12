@@ -45,6 +45,23 @@ export function clampColumnWidth(width: unknown, fallback: number): number {
   return Math.min(COLUMN_WIDTH_MAX, Math.max(COLUMN_WIDTH_MIN, Math.round(n)));
 }
 
+/** 解析列宽：优先用户偏好，其次列定义，最后 fallback */
+export function resolveColumnWidth(
+  key: string,
+  colWidth: number | undefined,
+  widths: Record<string, number>,
+  fallback = 120,
+): number {
+  if (widths[key] != null) return widths[key];
+  if (typeof colWidth === 'number') return colWidth;
+  return fallback;
+}
+
+/** 锁定列宽，避免 table 填满容器时其他列被连带缩放 */
+export function lockedColumnWidthStyle(width: number): { width: number; minWidth: number; maxWidth: number } {
+  return { width, minWidth: width, maxWidth: width };
+}
+
 export interface ColumnPreferences {
   order: string[];
   visible: ColumnVisibility;

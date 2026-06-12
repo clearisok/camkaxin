@@ -4,6 +4,12 @@ import {
   enrichStyle,
   type StyleRow,
 } from '../utils/styleCalculations.js';
+import { normalizeZonePatch, todayYmd } from '../utils/schedulingZone.js';
+import {
+  calcUnscheduledQuantity,
+  effectiveAllocatedQuantity,
+  loadAllocatedMap,
+} from './styleAllocation.js';
 
 export interface StyleListQuery {
   view?: 'early_warning' | 'scheduling' | 'closing';
@@ -15,6 +21,11 @@ export interface StyleListQuery {
   search?: string;
   sort_by?: string;
   sort_order?: 'asc' | 'desc';
+}
+
+function parseCsvFilter(value?: string): string[] {
+  if (!value?.trim()) return [];
+  return value.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
 const STYLE_SORTABLE_FIELDS = new Set([
@@ -38,13 +49,21 @@ function normalizeValue(key: string, value: unknown): unknown {
     return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
   }
   if (key === 'is_outsourced') return Boolean(value);
+  if (key === 'sort_order' || key === 'required_days') {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.round(n) : null;
+  }
+  if (key === 'scheduling_zone') return String(value);
   return value;
 }
 
 function pickUpdates(data: Record<string, unknown>): Record<string, unknown> {
+  const withZone = ('scheduling_zone' in data || 'group_name' in data)
+    ? normalizeZonePatch(data)
+    : data;
   const updates: Record<string, unknown> = {};
   for (const key of EDITABLE_STYLE_FIELDS) {
-    if (key in data) updates[key] = normalizeValue(key, data[key]);
+    if (key in withZone) updates[key] = normalizeValue(key, withZone[key]);
   }
   return updates;
 }
@@ -65,32 +84,77 @@ function buildDiff(
   return diff;
 }
 
+/** 生产规则：offline_time 早于今天（不含今天）且仍在产线/外发 → 自动进下线区 */
+export async function applyAutoOfflineRules() {
+  const today = todayYmd();
+  const result = await query(
+    `UPDATE styles SET
+      scheduling_zone = 'offline',
+      group_name = NULL,
+      updated_at = NOW()
+     WHERE scheduling_zone IN ('group', 'outsource')
+       AND offline_time IS NOT NULL
+       AND offline_time < $1::date
+     RETURNING id`,
+    [today],
+  );
+  return result.rowCount ?? 0;
+}
+
 export async function listStyles(params: StyleListQuery) {
+  if (params.view === 'scheduling') {
+    await applyAutoOfflineRules();
+  }
+
   let where = 'WHERE 1=1';
+
+  if (params.view === 'early_warning' || params.view === 'closing') {
+    where += ' AND parent_style_id IS NULL';
+  } else if (params.view === 'scheduling') {
+    where += ` AND (
+      parent_style_id IS NOT NULL
+      OR (parent_style_id IS NULL AND scheduling_zone = 'wait')
+      OR (parent_style_id IS NULL AND scheduling_zone NOT IN ('wait'))
+    )`;
+  }
   const values: unknown[] = [];
   let idx = 1;
 
-  if (params.view === 'scheduling') {
-    where += ' AND group_name IS NOT NULL AND group_name <> \'\'';
-  }
-  if (params.closing_month) {
+  // scheduling：加载全部区位（待排 + 各组 + 外发 + 下线），不再过滤 group_name
+  const closingMonths = parseCsvFilter(params.closing_month);
+  if (closingMonths.length === 1) {
     where += ` AND closing_month = $${idx++}`;
-    values.push(params.closing_month);
+    values.push(closingMonths[0]);
+  } else if (closingMonths.length > 1) {
+    where += ` AND closing_month = ANY($${idx++}::text[])`;
+    values.push(closingMonths);
   }
-  if (params.brand) {
+
+  const brands = parseCsvFilter(params.brand);
+  if (brands.length === 1) {
     where += ` AND brand = $${idx++}`;
-    values.push(params.brand);
+    values.push(brands[0]);
+  } else if (brands.length > 1) {
+    where += ` AND brand = ANY($${idx++}::text[])`;
+    values.push(brands);
   }
-  if (params.salesperson) {
+
+  const salespersons = parseCsvFilter(params.salesperson);
+  if (salespersons.length === 1) {
     where += ` AND salesperson = $${idx++}`;
-    values.push(params.salesperson);
+    values.push(salespersons[0]);
+  } else if (salespersons.length > 1) {
+    where += ` AND salesperson = ANY($${idx++}::text[])`;
+    values.push(salespersons);
   }
   if (params.group) {
     where += ` AND group_name = $${idx++}`;
     values.push(params.group);
   }
   if (params.unscheduled_only) {
-    where += ' AND (group_name IS NULL OR group_name = \'\' OR online_time IS NULL)';
+    where += ` AND parent_style_id IS NULL AND scheduling_zone = 'wait' AND COALESCE(quantity, 0) > COALESCE((
+      SELECT SUM(c.scheduled_output) FROM styles c WHERE c.parent_style_id = styles.id
+    ), 0)`;
   }
   if (params.search) {
     where += ` AND (
@@ -106,7 +170,14 @@ export async function listStyles(params: StyleListQuery) {
     const dir = params.sort_order === 'desc' ? 'DESC' : 'ASC';
     orderBy = `ORDER BY ${params.sort_by} ${dir} NULLS LAST, id ASC`;
   } else if (params.view === 'scheduling') {
-    orderBy = 'ORDER BY group_name ASC, online_time ASC NULLS LAST, offline_time ASC NULLS LAST';
+    orderBy = `ORDER BY
+      CASE scheduling_zone
+        WHEN 'wait' THEN 0 WHEN 'group' THEN 1 WHEN 'outsource' THEN 2 WHEN 'offline' THEN 3 ELSE 4
+      END,
+      group_name ASC NULLS LAST,
+      sort_order ASC NULLS LAST,
+      online_time ASC NULLS LAST,
+      id ASC`;
   } else if (params.view === 'closing') {
     orderBy = 'ORDER BY closing_month ASC NULLS LAST, style_number ASC';
   } else if (params.view === 'early_warning') {
@@ -114,17 +185,40 @@ export async function listStyles(params: StyleListQuery) {
   }
 
   const result = await query(`SELECT * FROM styles ${where} ${orderBy}`, values);
-  return result.rows.map((row) => enrichStyle(row as StyleRow));
+  const rows = result.rows.map((row) => enrichStyle(row as StyleRow));
+  const parentIds = rows
+    .filter((row) => row.parent_style_id == null)
+    .map((row) => Number(row.id))
+    .filter((id) => Number.isFinite(id));
+  const allocatedMap = await loadAllocatedMap(parentIds);
+  return rows.map((row) => {
+    if (row.parent_style_id != null) return row;
+    const childAllocated = allocatedMap.get(Number(row.id)) ?? 0;
+    const allocated = effectiveAllocatedQuantity(row, childAllocated);
+    return {
+      ...row,
+      allocated_quantity: allocated,
+      unscheduled_quantity: calcUnscheduledQuantity(row.quantity, allocated),
+    };
+  });
 }
 
 export async function getStyleById(id: number) {
   const result = await query('SELECT * FROM styles WHERE id = $1', [id]);
   if (!result.rows[0]) return null;
-  return enrichStyle(result.rows[0] as StyleRow);
+  const row = enrichStyle(result.rows[0] as StyleRow);
+  if (row.parent_style_id != null) return row;
+  const childAllocated = await loadAllocatedMap([Number(row.id)]).then((m) => m.get(Number(row.id)) ?? 0);
+  const allocated = effectiveAllocatedQuantity(row, childAllocated);
+  return {
+    ...row,
+    allocated_quantity: allocated,
+    unscheduled_quantity: calcUnscheduledQuantity(row.quantity, allocated),
+  };
 }
 
 export async function createStyle(data: Record<string, unknown>) {
-  const updates = pickUpdates(data);
+  const updates = pickUpdates({ scheduling_zone: 'wait', ...data });
   if (!updates.style_number) {
     throw new Error('款号必填');
   }
@@ -237,6 +331,7 @@ export async function getMonthlySummary() {
       ), 0)::float AS total_sales_output_value
     FROM styles
     WHERE closing_month IS NOT NULL AND closing_month <> ''
+      AND parent_style_id IS NULL
     GROUP BY closing_month
     ORDER BY closing_month ASC
   `);
@@ -264,7 +359,7 @@ export async function seedStylesIfEmpty() {
       closing_month: '2026-07', fabric_structure: '全棉', fabric_readiness: '在途',
       accessories_readiness: '已齐', sample_progress: '产前样', po_number: 'PO2026002',
       quantity: 8000, processing_unit_price: 22, sales_price: 35,
-      group_name: 'A组', online_time: '2026-04-01', offline_time: '2026-04-15',
+      group_name: '2', online_time: '2026-04-01', offline_time: '2026-04-15',
       scheduled_output: 8000, avg_daily_output: 600, first_bed_time: '2026-03-28',
     },
     {
@@ -272,7 +367,7 @@ export async function seedStylesIfEmpty() {
       closing_month: '2026-06', fabric_structure: '抓绒', fabric_readiness: '已齐',
       accessories_readiness: '已齐', sample_progress: '大货样', po_number: 'PO2026003',
       quantity: 3000, processing_unit_price: 55, sales_price: 88,
-      group_name: 'B组', online_time: '2026-04-10', offline_time: '2026-04-25',
+      group_name: '外发', online_time: '2026-04-10', offline_time: '2026-04-25',
       scheduled_output: 3000, avg_daily_output: 200, is_outsourced: true,
       outsourced_factory: '外协厂X', outsourced_price: 50,
     },
@@ -281,7 +376,7 @@ export async function seedStylesIfEmpty() {
       closing_month: '2026-08', fabric_structure: '弹力斜纹', fabric_readiness: '未齐',
       accessories_readiness: '未齐', sample_progress: '开发样', po_number: 'PO2026004',
       quantity: 6000, processing_unit_price: 38, sales_price: 58,
-      group_name: 'A组', online_time: '2026-05-01', offline_time: '2026-05-20',
+      group_name: '1', online_time: '2026-05-01', offline_time: '2026-05-20',
       scheduled_output: 6000, avg_daily_output: 350,
     },
   ];

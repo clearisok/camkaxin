@@ -3,7 +3,6 @@ import { Button } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 
 interface PageHeaderProps {
-  /** @deprecated 界面名称已全局隐藏，保留参数仅为兼容旧调用 */
   title?: string;
   subtitle?: string;
   description?: string;
@@ -11,18 +10,32 @@ interface PageHeaderProps {
   onBack?: () => void;
 }
 
-export default function PageHeader({ extra, onBack }: PageHeaderProps) {
-  if (!extra && !onBack) return null;
+export default function PageHeader({
+  title,
+  subtitle,
+  description,
+  extra,
+  onBack,
+}: PageHeaderProps) {
+  const hasMain = Boolean(title || description || subtitle || onBack);
+  if (!hasMain && !extra) return null;
 
   return (
-    <div className="page-header">
-      <div className="flex items-center gap-3 min-w-0">
-        {onBack && (
-          <Button size="small" icon={<ArrowLeftOutlined />} onClick={onBack}>
-            返回
-          </Button>
-        )}
-      </div>
+    <div className="page-header-block">
+      {hasMain && (
+        <div className="page-header-main">
+          {onBack && (
+            <Button icon={<ArrowLeftOutlined />} onClick={onBack} className="page-header-back">
+              返回
+            </Button>
+          )}
+          <div className="page-header-text">
+            {title && <h2 className="page-header-title">{title}</h2>}
+            {subtitle && <p className="page-header-subtitle">{subtitle}</p>}
+            {description && <p className="page-header-desc">{description}</p>}
+          </div>
+        </div>
+      )}
       {extra && <div className="page-header-extra">{extra}</div>}
     </div>
   );

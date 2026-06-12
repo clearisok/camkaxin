@@ -18,9 +18,11 @@ export default function ResizableTableHeader({
   const [resizing, setResizing] = useState(false);
   const startRef = useRef({ x: 0, width: 0 });
 
+  const textAlign = style?.textAlign ?? 'center';
+
   if (!width || !onResize) {
     return (
-      <th {...restProps} style={{ ...style, textAlign: 'center' }}>
+      <th {...restProps} style={{ ...style, textAlign }}>
         {children}
       </th>
     );
@@ -53,10 +55,14 @@ export default function ResizableTableHeader({
     document.addEventListener('mouseup', onMouseUp);
   };
 
+  const lockedWidth = width != null
+    ? { width, minWidth: width, maxWidth: width }
+    : {};
+
   return (
     <th
       {...restProps}
-      style={{ ...style, position: 'relative', width, textAlign: 'center' }}
+      style={{ ...style, position: 'relative', textAlign, ...lockedWidth }}
     >
       <div className="table-col-header-content">{children}</div>
       <span

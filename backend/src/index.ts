@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 import swaggerJsdoc from 'swagger-jsdoc';
@@ -12,6 +13,7 @@ import accessoriesRouter from './routes/accessories.js';
 import settingsRouter from './routes/settings.js';
 import quotationsRouter from './routes/quotations.js';
 import stylesRouter from './routes/styles.js';
+import { ensureSchedulingSchema } from './db/ensureSchedulingSchema.js';
 
 dotenv.config();
 
@@ -50,14 +52,43 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/quotations', quotationsRouter);
 app.use('/api/styles', stylesRouter);
 
+const staticDir = process.env.STATIC_DIR
+  ? path.resolve(process.cwd(), process.env.STATIC_DIR)
+  : path.resolve(process.cwd(), '../frontend/dist');
+const indexHtml = path.join(staticDir, 'index.html');
+
+if (fs.existsSync(indexHtml)) {
+  app.use(express.static(staticDir));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/api-docs') || req.path.startsWith('/uploads')) {
+      next();
+      return;
+    }
+    res.sendFile(indexHtml);
+  });
+}
+
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err.stack);
   res.status(500).json({ error: err.message });
 });
 
-app.listen(PORT, () => {
-  console.log(`柬凯报价模块 API 运行于 http://localhost:${PORT}`);
-  console.log(`Swagger 文档: http://localhost:${PORT}/api-docs`);
-});
+async function start() {
+  try {
+    await ensureSchedulingSchema();
+  } catch (err) {
+    console.error('排单字段自检失败，请运行 npm run db:migrate：', err);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`柬凯报价模块 API 运行于 http://localhost:${PORT}`);
+    console.log(`Swagger 文档: http://localhost:${PORT}/api-docs`);
+    if (fs.existsSync(indexHtml)) {
+      console.log(`前端静态资源: http://localhost:${PORT} （${staticDir}）`);
+    }
+  });
+}
+
+start();
 
 export default app;

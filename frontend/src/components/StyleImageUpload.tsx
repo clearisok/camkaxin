@@ -6,12 +6,16 @@ interface StyleImageUploadProps {
   value?: string;
   onChange: (path?: string) => void;
   readOnly?: boolean;
+  compact?: boolean;
 }
 
-export default function StyleImageUpload({ value, onChange, readOnly }: StyleImageUploadProps) {
+export default function StyleImageUpload({ value, onChange, readOnly, compact }: StyleImageUploadProps) {
+  const previewVariant = compact ? 'thumb' : 'large';
+  const previewSize = compact ? 56 : undefined;
+
   if (readOnly) {
     return value ? (
-      <AttachmentPreviewList paths={[value]} variant="large" />
+      <AttachmentPreviewList paths={[value]} variant={previewVariant} size={previewSize} />
     ) : (
       <span className="text-gray-400">—</span>
     );
@@ -19,15 +23,18 @@ export default function StyleImageUpload({ value, onChange, readOnly }: StyleIma
 
   if (value) {
     return (
-      <div className="space-y-2">
+      <div className={compact ? 'style-form-image-compact-preview' : 'space-y-2'}>
         <AttachmentPreviewList
           paths={[value]}
-          variant="large"
+          variant={previewVariant}
+          size={previewSize}
           onRemove={() => onChange(undefined)}
         />
-        <Button type="link" size="small" className="!px-0" onClick={() => onChange(undefined)}>
-          更换款式图
-        </Button>
+        {!compact && (
+          <Button type="link" size="small" className="!px-0" onClick={() => onChange(undefined)}>
+            更换款式图
+          </Button>
+        )}
       </div>
     );
   }

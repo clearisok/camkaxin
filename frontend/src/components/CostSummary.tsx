@@ -52,7 +52,7 @@ export default function CostSummary({
 
   return (
     <div className="cost-summary-panel">
-      <h3 className="text-base font-semibold text-brand-800 mb-4">成本汇总</h3>
+      <h3 className="section-title">成本汇总</h3>
 
       <div className="space-y-2.5">
         {rows.map((row) => (
