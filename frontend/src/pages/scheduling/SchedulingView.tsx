@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table, Input, Space, Button, message, Collapse, Tag } from 'antd';
+import { Table, Input, Space, Button, message, Collapse, Tag, Modal } from 'antd';
 import {
   HistoryOutlined, ReloadOutlined, ColumnHeightOutlined,
   VerticalAlignMiddleOutlined, CloseOutlined,
+  ExperimentOutlined, BellOutlined, ArrowUpOutlined, ArrowDownOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import TableColumnSettings from '@/components/TableColumnSettings';
 import ResizableTableHeader from '@/components/ResizableTableHeader';
 import StyleHistoryDrawer from '@/components/scheduling/StyleHistoryDrawer';
 import StyleMoveTargetCell from '@/components/scheduling/StyleMoveTargetCell';
+import OutsourceModal from '@/components/scheduling/OutsourceModal';
+import OfflineNotificationDrawer from '@/components/scheduling/OfflineNotificationDrawer';
 import SchedulingPanel from '@/components/scheduling/SchedulingPanel';
 import ReadOnlyCell from '@/components/scheduling/ReadOnlyCell';
 import {
@@ -18,7 +21,16 @@ import {
 } from '@/components/scheduling/StyleInlineCells';
 import { useStyleInlineEdit } from '@/hooks/useStyleInlineEdit';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
-import { getStyles, updateStyle } from '@/api/styles';
+import {
+  getStyles,
+  moveStyle,
+  offlineStyle,
+  reorderStyle,
+  getOfflineNotifications,
+  applySandboxOperations,
+  previewSandboxScheduling,
+  type SandboxOperation,
+} from '@/api/styles';
 import type { StyleRecord } from '@/types/style';
 import { enrichStyleClient, formatDate, isOfflineAfterShipping } from '@/utils/styleCalculations';
 import { useSchedulingSessionSplit } from '@/hooks/useSchedulingSessionSplit';
@@ -49,7 +61,7 @@ import {
   collapseLabel,
   formatMaterialText,
   isProductionGroupKey,
-  patchForMoveTarget,
+  inferZone,
   summarizeProductionGroup,
 } from '@/utils/schedulingZone';
 
@@ -66,7 +78,7 @@ export default function SchedulingView() {
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const debouncedSearch = useDebouncedValue(searchInput, 300);
-  const [activeKeys, setActiveKeys] = useState<string[]>([ZONE_COLLAPSE_KEYS.wait]);
+  const [activeKeys, setActiveKeys] = useState<string[]>([]);
   const [schedulingMode, setSchedulingMode] = useState(false);
   const [columnPrefs, setColumnPrefs] = useState<ColumnPreferences>(() =>
     loadViewColumnPreferences(SCHEDULING_STORAGE_KEY, SCHEDULING_COLUMNS)
@@ -75,11 +87,15 @@ export default function SchedulingView() {
     loadViewColumnPreferences(SCHEDULING_SESSION_STORAGE_KEY, SCHEDULING_SESSION_COLUMNS)
   );
   const [historyStyle, setHistoryStyle] = useState<StyleRecord | null>(null);
+  const [sandboxMode, setSandboxMode] = useState(false);
+  const [sandboxOps, setSandboxOps] = useState<SandboxOperation[]>([]);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
+  const [outsourceRecord, setOutsourceRecord] = useState<StyleRecord | null>(null);
+  const [moveSavingId, setMoveSavingId] = useState<number | null>(null);
   const { paginationConfig } = useTablePagination(SCHEDULING_PAGE_SIZE_KEY);
-  const { savingId, updateLocal, saveField } = useStyleInlineEdit(setData);
+  const { savingId, updateLocal, saveField: baseSaveField } = useStyleInlineEdit(setData);
   const { panelWidth, resizing, layoutRef, startResize } = useSchedulingSessionSplit(schedulingMode);
-
-  const cellProps = (record: StyleRecord) => ({ record, updateLocal, saveField, savingId });
 
   const persistColumnPrefs = useCallback((prefs: ColumnPreferences) => {
     saveViewColumnPreferences(SCHEDULING_STORAGE_KEY, prefs, SCHEDULING_COLUMNS);
@@ -129,29 +145,151 @@ export default function SchedulingView() {
     }
   }, [debouncedSearch]);
 
+  const saveField = useCallback(async (id: number, patch: Record<string, unknown>) => {
+    const record = data.find((r) => r.id === id);
+    const zone = record ? inferZone(record) : null;
+    const isTimeline = ['online_time', 'offline_time', 'required_days'].some((k) => k in patch);
+    await baseSaveField(id, patch);
+    if (isTimeline && (zone === 'group' || zone === 'outsource')) {
+      await loadData();
+    }
+  }, [data, baseSaveField, loadData]);
+
+  const cellProps = (record: StyleRecord) => ({ record, updateLocal, saveField, savingId });
+
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleMove = useCallback(async (id: number, patch: Record<string, unknown>) => {
+  const refreshNotificationCount = useCallback(async () => {
     try {
-      await updateStyle(id, patch);
+      const res = await getOfflineNotifications();
+      setNotificationCount((res.data || []).length);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => { refreshNotificationCount(); }, [refreshNotificationCount, data]);
+
+  const queueSandboxOp = useCallback(async (op: SandboxOperation) => {
+    const nextOps = [...sandboxOps, op];
+    setLoading(true);
+    try {
+      const res = await previewSandboxScheduling(nextOps);
+      setData((res.data || []).map(enrichStyleClient));
+      setSandboxOps(nextOps);
+      message.success(`沙箱：已应用「${op.label}」`);
+    } catch (err) {
+      message.error(String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [sandboxOps]);
+
+  const handleMove = useCallback(async (id: number, target: string) => {
+    const record = data.find((r) => r.id === id);
+    const label = record ? `${record.style_number} → ${target}` : `移动 ${id}`;
+    if (sandboxMode) {
+      queueSandboxOp({ type: 'move', id, target, label });
+      return;
+    }
+    setMoveSavingId(id);
+    try {
+      await moveStyle(id, target);
       message.success('区位已更新');
       await loadData();
     } catch (err) {
       message.error(String(err));
+    } finally {
+      setMoveSavingId(null);
     }
-  }, [loadData]);
+  }, [data, sandboxMode, queueSandboxOp, loadData]);
 
-  const handleQuickMove = useCallback(async (record: StyleRecord, target: 'outsource' | 'offline') => {
-    await handleMove(record.id, patchForMoveTarget(target));
-  }, [handleMove]);
+  const handleOffline = useCallback(async (record: StyleRecord) => {
+    const label = `${record.style_number} 下线`;
+    if (sandboxMode) {
+      queueSandboxOp({ type: 'offline', id: record.id, label });
+      return;
+    }
+    try {
+      await offlineStyle(record.id);
+      message.success('已移入下线区');
+      await loadData();
+    } catch (err) {
+      message.error(String(err));
+    }
+  }, [sandboxMode, queueSandboxOp, loadData]);
+
+  const handleReorder = useCallback(async (record: StyleRecord, direction: 'up' | 'down') => {
+    const label = `${record.style_number} ${direction === 'up' ? '上调' : '下调'}`;
+    if (sandboxMode) {
+      queueSandboxOp({ type: 'reorder', id: record.id, direction, label });
+      return;
+    }
+    try {
+      await reorderStyle(record.id, direction);
+      message.success(direction === 'up' ? '已上调' : '已下调');
+      await loadData();
+    } catch (err) {
+      message.error(String(err));
+    }
+  }, [sandboxMode, queueSandboxOp, loadData]);
+
+  const enterSandbox = () => {
+    setSandboxMode(true);
+    setSandboxOps([]);
+    message.info('已进入排单沙箱，操作不会立即写入生产数据');
+  };
+
+  const exitSandbox = () => {
+    if (sandboxOps.length > 0) {
+      Modal.confirm({
+        title: '退出沙箱',
+        content: '尚有未应用的沙箱操作，确定放弃并退出？',
+        onOk: () => {
+          setSandboxMode(false);
+          setSandboxOps([]);
+          void loadData();
+        },
+      });
+      return;
+    }
+    setSandboxMode(false);
+    void loadData();
+  };
+
+  const applySandbox = () => {
+    if (sandboxOps.length === 0) {
+      message.warning('沙箱中暂无待应用操作');
+      return;
+    }
+    Modal.confirm({
+      title: '应用排单',
+      content: `将 ${sandboxOps.length} 项沙箱操作写入生产数据，是否继续？`,
+      onOk: async () => {
+        try {
+          await applySandboxOperations(sandboxOps);
+          message.success('沙箱排单已应用');
+          setSandboxOps([]);
+          setSandboxMode(false);
+          await loadData();
+        } catch (err) {
+          message.error(String(err));
+        }
+      },
+    });
+  };
 
   const enterSchedulingMode = () => {
     setSchedulingMode(true);
+    const first = MAIN_VIEW_COLLAPSE_KEYS.find((key) => {
+      const bucket = buckets.find(([k]) => k === key);
+      return bucket && bucket[1].length > 0;
+    });
+    setActiveKeys(first ? [first] : []);
   };
 
   const exitSchedulingMode = () => {
     setSchedulingMode(false);
-    setActiveKeys([ZONE_COLLAPSE_KEYS.wait]);
   };
 
   const baseColumns: ColumnsType<StyleRecord> = useMemo(() => [
@@ -182,8 +320,10 @@ export default function SchedulingView() {
       render: (_: unknown, record) => <StyleDateCell field="online_time" {...cellProps(record)} /> },
     { title: '下线时间', dataIndex: 'offline_time', key: 'offline_time', width: 120,
       render: (_: unknown, record) => <StyleDateCell field="offline_time" {...cellProps(record)} /> },
-    { title: '天数', dataIndex: 'days', key: 'days', width: 70,
-      render: (v: number | null) => (v != null ? v : '—') },
+    { title: '所需天数', dataIndex: 'required_days', key: 'required_days', width: 80,
+      render: (v: number | null) => <ReadOnlyCell value={v != null ? v : undefined} placeholder="—" /> },
+    { title: '假期天数', dataIndex: 'holiday_days', key: 'holiday_days', width: 80,
+      render: (v: number | null) => <ReadOnlyCell value={v != null ? v : undefined} placeholder="—" /> },
     { title: '排入数量', dataIndex: 'scheduled_output', key: 'scheduled_output', width: 90,
       render: (v: number) => <ReadOnlyCell value={v} /> },
     {
@@ -200,9 +340,9 @@ export default function SchedulingView() {
     width: 130,
     ...(!schedulingMode ? { fixed: 'right' as const } : {}),
     render: (_: unknown, record) => (
-      <StyleMoveTargetCell record={record} savingId={savingId} onMove={handleMove} />
+      <StyleMoveTargetCell record={record} savingId={moveSavingId} onMove={handleMove} />
     ),
-  }), [schedulingMode, savingId, handleMove]);
+  }), [schedulingMode, moveSavingId, handleMove]);
 
   const outsourceFactoryColumn: ColumnsType<StyleRecord>[number] = useMemo(() => ({
     title: '外发工厂', key: 'outsourced_factory', width: 140, fixed: 'right',
@@ -221,26 +361,47 @@ export default function SchedulingView() {
   const buildActionColumn = useCallback((zoneKey: string): ColumnsType<StyleRecord>[number] => ({
     title: '操作',
     key: 'action',
-    width: 160,
+    width: 220,
     ...(!schedulingMode ? { fixed: 'right' as const } : {}),
     render: (_: unknown, record: StyleRecord) => (
-      <Space size={4}>
+      <Space size={4} wrap>
+        {isProductionGroupKey(zoneKey) && (
+          <>
+            <Button type="link" size="small" className="!px-1" icon={<ArrowUpOutlined />}
+              onClick={() => handleReorder(record, 'up')} />
+            <Button type="link" size="small" className="!px-1" icon={<ArrowDownOutlined />}
+              onClick={() => handleReorder(record, 'down')} />
+          </>
+        )}
         {zoneKey !== ZONE_COLLAPSE_KEYS.wait && zoneKey !== ZONE_COLLAPSE_KEYS.outsource && (
-          <Button type="link" size="small" className="!px-1" onClick={() => handleQuickMove(record, 'outsource')}>
+          <Button type="link" size="small" className="!px-1" onClick={() => setOutsourceRecord(record)}>
             外发
           </Button>
         )}
-        {zoneKey !== ZONE_COLLAPSE_KEYS.wait && (
-          <Button type="link" size="small" className="!px-1" onClick={() => handleQuickMove(record, 'offline')}>
+        {zoneKey !== ZONE_COLLAPSE_KEYS.wait && inferZone(record) !== 'offline' && (
+          <Button type="link" size="small" className="!px-1" onClick={() => handleOffline(record)}>
             下线
           </Button>
         )}
         <Button type="link" size="small" icon={<HistoryOutlined />} onClick={() => setHistoryStyle(record)} />
       </Space>
     ),
-  }), [schedulingMode, handleQuickMove]);
+  }), [schedulingMode, handleReorder, handleOffline]);
 
   const getColumnsForZone = useCallback((zoneKey: string) => {
+    const timelineEditable = zoneKey !== ZONE_COLLAPSE_KEYS.wait && zoneKey !== ZONE_COLLAPSE_KEYS.offline;
+    const cols = baseColumns.map((col) => {
+      if (col.key !== 'required_days') return col;
+      return {
+        ...col,
+        render: timelineEditable
+          ? (_: unknown, record: StyleRecord) => (
+            <StyleNumberCell field="required_days" min={1} precision={0} {...cellProps(record)} />
+          )
+          : (v: number | null) => <ReadOnlyCell value={v != null ? v : undefined} placeholder="—" />,
+      };
+    });
+
     const tail: ColumnsType<StyleRecord> = [];
     if (zoneKey === ZONE_COLLAPSE_KEYS.outsource) {
       tail.push(outsourceFactoryColumn, outsourcePriceColumn);
@@ -249,7 +410,7 @@ export default function SchedulingView() {
     }
     tail.push(buildActionColumn(zoneKey));
 
-    const merged = [...baseColumns, ...tail];
+    const merged = [...cols, ...tail];
     const prefs = schedulingMode ? sessionColumnPrefs : columnPrefs;
     const resizeOpts = schedulingMode
       ? { onResize: onSessionResize, onResizeStop: onSessionResizeStop }
@@ -294,6 +455,25 @@ export default function SchedulingView() {
     () => data.filter(isAwaitingSchedule).length,
     [data],
   );
+
+  useEffect(() => {
+    if (debouncedSearch.trim() || schedulingMode) return;
+    setActiveKeys((prev) => {
+      if (prev.length > 0) return prev;
+      if (waitCount > 0) return [ZONE_COLLAPSE_KEYS.wait];
+      return [];
+    });
+  }, [data, waitCount, debouncedSearch, schedulingMode]);
+
+  useEffect(() => {
+    if (!debouncedSearch.trim() || schedulingMode) return;
+    const keysWithMatches = displayBuckets
+      .filter(([, rows]) => rows.length > 0)
+      .map(([key]) => key);
+    if (keysWithMatches.length > 0) {
+      setActiveKeys(keysWithMatches);
+    }
+  }, [debouncedSearch, displayBuckets, schedulingMode]);
 
   const renderZoneLabel = (key: string, rows: StyleRecord[]) => {
     const title = collapseLabel(key, rows.length);
@@ -357,7 +537,19 @@ export default function SchedulingView() {
   }));
 
   return (
-    <div className={`scheduling-view${schedulingMode ? ' is-scheduling-mode' : ''}`}>
+    <div className={`scheduling-view${schedulingMode ? ' is-scheduling-mode' : ''}${sandboxMode ? ' is-sandbox-mode' : ''}`}>
+      {sandboxMode && (
+        <div className="scheduling-sandbox-banner">
+          <Tag color="orange">排单沙箱</Tag>
+          <span>当前操作即时预览（已暂存 {sandboxOps.length} 项，未写入生产数据）</span>
+          <Space>
+            <Button size="small" type="primary" onClick={applySandbox} disabled={sandboxOps.length === 0}>
+              应用排单
+            </Button>
+            <Button size="small" onClick={exitSandbox}>退出沙箱</Button>
+          </Space>
+        </div>
+      )}
       <div className="card-panel mb-4 scheduling-toolbar">
         <Space wrap className="w-full justify-between">
           <Space wrap>
@@ -380,9 +572,26 @@ export default function SchedulingView() {
                 <Button icon={<ColumnHeightOutlined />} onClick={() => setActiveKeys([...EXPAND_ALL_COLLAPSE_KEYS])}>
                   展开全部
                 </Button>
-                <Button icon={<VerticalAlignMiddleOutlined />} onClick={() => setActiveKeys([ZONE_COLLAPSE_KEYS.wait])}>
+                <Button icon={<VerticalAlignMiddleOutlined />} onClick={() => setActiveKeys([])}>
                   折叠全部
                 </Button>
+                <Button
+                  type={sandboxMode ? 'primary' : 'default'}
+                  icon={<ExperimentOutlined />}
+                  onClick={sandboxMode ? exitSandbox : enterSandbox}
+                >
+                  排单沙箱
+                </Button>
+                <span className="offline-notify-btn-wrap">
+                  {notificationCount > 0 && (
+                    <span className="offline-notify-badge" aria-label={`${notificationCount} 条待确认下线`}>
+                      {notificationCount > 99 ? '99+' : notificationCount}
+                    </span>
+                  )}
+                  <Button icon={<BellOutlined />} onClick={() => setNotificationOpen(true)}>
+                    下线通知
+                  </Button>
+                </span>
               </>
             )}
           </Space>
@@ -408,7 +617,7 @@ export default function SchedulingView() {
         <p className="scheduling-toolbar-hint">
           {schedulingMode
             ? '左侧查看各组已排订单，右侧填写待排单信息并确认排入。'
-            : '待排单区点击「开始排单」进入排单；外发订单填写外发工厂与价格；下线时间早于今天（不含今天）自动进入下线区。'}
+            : '待排单区点击「开始排单」进入排单；生产组按工作日链式排期；下线通知处理超期款式。'}
         </p>
       </div>
 
@@ -452,6 +661,27 @@ export default function SchedulingView() {
         styleId={historyStyle?.id ?? null}
         styleLabel={historyStyle?.style_number}
         onClose={() => setHistoryStyle(null)}
+      />
+
+      <OutsourceModal
+        open={!!outsourceRecord}
+        record={outsourceRecord}
+        onClose={() => setOutsourceRecord(null)}
+        onSuccess={loadData}
+        onSubmit={sandboxMode && outsourceRecord ? async (payload) => {
+          await queueSandboxOp({
+            type: 'outsource',
+            id: outsourceRecord.id,
+            payload,
+            label: `${outsourceRecord.style_number} 外发`,
+          });
+        } : undefined}
+      />
+
+      <OfflineNotificationDrawer
+        open={notificationOpen}
+        onClose={() => setNotificationOpen(false)}
+        onChanged={() => { loadData(); refreshNotificationCount(); }}
       />
     </div>
   );

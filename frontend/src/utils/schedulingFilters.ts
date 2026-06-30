@@ -1,18 +1,20 @@
-import dayjs from 'dayjs';
+import { todayYm } from '@/utils/beijingTime';
 
-/** 默认关账月份：当前年月 YYYY-MM */
+/** 默认关账月份：北京当前年月 YYYY-MM */
 export function defaultClosingMonth(): string {
-  return dayjs().format('YYYY-MM');
+  return todayYm();
 }
 
-export type EarlyWarningSearchScope = 'local' | 'global';
+export type EarlyWarningSearchScope = 'local' | 'global' | 'accumulate';
 
 export const EARLY_WARNING_SEARCH_SCOPE_STORAGE_KEY = 'scheduling-early-warning-search-scope';
 
 export function loadEarlyWarningSearchScope(): EarlyWarningSearchScope {
   try {
     const raw = localStorage.getItem(EARLY_WARNING_SEARCH_SCOPE_STORAGE_KEY);
-    return raw === 'global' ? 'global' : 'local';
+    if (raw === 'global') return 'global';
+    if (raw === 'accumulate') return 'accumulate';
+    return 'local';
   } catch {
     return 'local';
   }

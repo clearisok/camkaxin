@@ -3,6 +3,7 @@ import { Drawer, Timeline, Spin, Empty } from 'antd';
 import { getStyleHistory } from '@/api/styles';
 import type { StyleHistoryRecord } from '@/types/style';
 import { STYLE_FIELD_LABELS } from '@/types/style';
+import { formatDateTimeBeijing } from '@/utils/beijingTime';
 
 interface StyleHistoryDrawerProps {
   styleId: number | null;
@@ -48,7 +49,7 @@ export default function StyleHistoryDrawer({ styleId, styleLabel, open, onClose 
             children: (
               <div className="text-sm">
                 <div className="text-gray-400 mb-1">
-                  {new Date(rec.changed_at).toLocaleString('zh-CN')} · {rec.changed_by}
+                  {formatDateTimeBeijing(rec.changed_at)} · {rec.changed_by}
                 </div>
                 <ul className="space-y-1">
                   {Object.entries(rec.changed_data || {}).map(([key, change]) => (

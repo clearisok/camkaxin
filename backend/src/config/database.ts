@@ -5,11 +5,18 @@ dotenv.config();
 
 const { Pool } = pg;
 
-export const pool = new Pool({
-  connectionString:
-    process.env.DATABASE_URL ||
+function withBeijingTimezone(url: string): string {
+  if (/options=.*TimeZone/i.test(url)) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}options=-c%20TimeZone%3DAsia%2FShanghai`;
+}
+
+const connectionString = withBeijingTimezone(
+  process.env.DATABASE_URL ||
     'postgresql://jiankai:jiankai123@localhost:5433/jiankai_quotation',
-});
+);
+
+export const pool = new Pool({ connectionString });
 
 // Prevent Node process crash when idle clients lose connection (e.g. Docker PG restart)
 pool.on('error', (err) => {

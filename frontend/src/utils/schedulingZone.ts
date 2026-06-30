@@ -100,8 +100,7 @@ export function patchForMoveTarget(target: string): Record<string, unknown> {
   if (target === 'wait') return { scheduling_zone: 'wait', group_name: null };
   if (target === 'outsource') return { scheduling_zone: 'outsource', group_name: null, is_outsourced: true };
   if (target === 'offline') {
-    const today = new Date().toISOString().slice(0, 10);
-    return { scheduling_zone: 'offline', group_name: null, offline_time: today };
+    return { scheduling_zone: 'offline' };
   }
   if (target.startsWith('group:')) {
     const g = target.slice(6);

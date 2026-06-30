@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { todayYmdCompactBeijing } from '../utils/beijingTime.js';
 import { getQuotationFull } from './quotationService.js';
 import { loadImageBuffer, IMAGE_SIZE } from './excelExport.js';
 
@@ -129,6 +130,6 @@ export async function exportSummaryExcel(quotationIds: number[]): Promise<Buffer
 }
 
 export function buildSummaryFilename(): string {
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const date = todayYmdCompactBeijing();
   return `报价汇总_${date}.xlsx`;
 }

@@ -1,5 +1,12 @@
 import type { StyleRecord } from '@/types/style';
-import { defaultClosingMonth, type EarlyWarningSearchScope } from '@/utils/schedulingFilters';
+import type { EarlyWarningSearchScope } from '@/utils/schedulingFilters';
+import type { FieldFilterState } from '@/utils/earlyWarningFieldFilter';
+import { normalizeFieldFilter } from '@/utils/earlyWarningFieldFilter';
+import {
+  defaultClosingMonthRange,
+  normalizeClosingMonthRange,
+  type ClosingMonthRange,
+} from '@/utils/closingMonthRange';
 
 export const EARLY_WARNING_FILTERS_STORAGE_KEY = 'scheduling-early-warning-filters';
 export const EARLY_WARNING_LIST_CACHE_KEY = 'scheduling-early-warning-list-cache';
@@ -8,9 +15,8 @@ export const EARLY_WARNING_GAPS_FILLED_KEY = 'scheduling-early-warning-gaps-fill
 export interface EarlyWarningFilterState {
   searchInput: string;
   searchScope: EarlyWarningSearchScope;
-  brandFilters: string[];
-  salespersonFilters: string[];
-  closingMonthFilters: string[];
+  fieldFilter: FieldFilterState | null;
+  closingMonthRange: ClosingMonthRange;
   unscheduledOnly: boolean;
 }
 
@@ -24,10 +30,51 @@ function defaultFilters(): EarlyWarningFilterState {
   return {
     searchInput: '',
     searchScope: 'local',
-    brandFilters: [],
-    salespersonFilters: [],
-    closingMonthFilters: [defaultClosingMonth()],
+    fieldFilter: null,
+    closingMonthRange: defaultClosingMonthRange(),
     unscheduledOnly: false,
+  };
+}
+
+function migrateLegacyFilters(parsed: Record<string, unknown>): EarlyWarningFilterState {
+  const base = { ...defaultFilters(), ...parsed } as EarlyWarningFilterState & {
+    brandFilters?: string[];
+    salespersonFilters?: string[];
+    closingMonthFilters?: string[];
+    closingMonthStart?: string;
+    closingMonthEnd?: string;
+  };
+  if (!base.fieldFilter) {
+    if (base.brandFilters?.length) {
+      base.fieldFilter = { field: 'brand', values: base.brandFilters };
+    } else if (base.salespersonFilters?.length) {
+      base.fieldFilter = { field: 'salesperson', values: base.salespersonFilters };
+    }
+  }
+  base.fieldFilter = normalizeFieldFilter(base.fieldFilter);
+
+  let closingMonthRange = base.closingMonthRange;
+  if (!closingMonthRange?.startMonth || !closingMonthRange?.endMonth) {
+    if (base.closingMonthStart && base.closingMonthEnd) {
+      closingMonthRange = normalizeClosingMonthRange(base.closingMonthStart, base.closingMonthEnd);
+    } else if (Array.isArray(base.closingMonthFilters) && base.closingMonthFilters.length > 0) {
+      const sorted = [...base.closingMonthFilters].sort();
+      closingMonthRange = normalizeClosingMonthRange(sorted[0], sorted[sorted.length - 1]);
+    } else {
+      closingMonthRange = defaultClosingMonthRange();
+    }
+  }
+
+  return {
+    searchInput: base.searchInput ?? '',
+    searchScope: base.searchScope === 'global'
+      ? 'global'
+      : base.searchScope === 'accumulate'
+        ? 'accumulate'
+        : 'local',
+    fieldFilter: base.fieldFilter,
+    closingMonthRange: normalizeClosingMonthRange(closingMonthRange.startMonth, closingMonthRange.endMonth),
+    unscheduledOnly: Boolean(base.unscheduledOnly),
   };
 }
 
@@ -35,14 +82,8 @@ export function loadEarlyWarningFilters(): EarlyWarningFilterState {
   try {
     const raw = sessionStorage.getItem(EARLY_WARNING_FILTERS_STORAGE_KEY);
     if (!raw) return defaultFilters();
-    const parsed = JSON.parse(raw) as Partial<EarlyWarningFilterState>;
-    return {
-      ...defaultFilters(),
-      ...parsed,
-      closingMonthFilters: Array.isArray(parsed.closingMonthFilters) && parsed.closingMonthFilters.length
-        ? parsed.closingMonthFilters
-        : [defaultClosingMonth()],
-    };
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return migrateLegacyFilters(parsed);
   } catch {
     return defaultFilters();
   }
@@ -60,7 +101,22 @@ export function loadEarlyWarningListCache(): EarlyWarningListCache | null {
   try {
     const raw = sessionStorage.getItem(EARLY_WARNING_LIST_CACHE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as EarlyWarningListCache;
+    const parsed = JSON.parse(raw) as EarlyWarningListCache & {
+      brandFilters?: string[];
+      salespersonFilters?: string[];
+      closingMonthFilters?: string[];
+    };
+    const filters = migrateLegacyFilters(parsed as unknown as Record<string, unknown>);
+    return {
+      searchInput: filters.searchInput,
+      searchScope: filters.searchScope,
+      fieldFilter: filters.fieldFilter,
+      closingMonthRange: filters.closingMonthRange,
+      unscheduledOnly: filters.unscheduledOnly,
+      data: Array.isArray(parsed.data) ? parsed.data : [],
+      selectedRowKeys: Array.isArray(parsed.selectedRowKeys) ? parsed.selectedRowKeys : [],
+      page: typeof parsed.page === 'number' ? parsed.page : 1,
+    };
   } catch {
     return null;
   }

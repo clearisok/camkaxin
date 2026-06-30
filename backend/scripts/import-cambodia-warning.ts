@@ -6,6 +6,7 @@ import ExcelJS from 'exceljs';
 import dotenv from 'dotenv';
 import { pool, query } from '../src/config/database.js';
 import { createStyle, updateStyle } from '../src/services/styleService.js';
+import { toYmdBeijing } from '../src/utils/beijingTime.js';
 
 dotenv.config();
 
@@ -89,7 +90,7 @@ function shouldImportSheet(name: string): boolean {
 
 function cellText(value: ExcelJS.CellValue): string {
   if (value == null) return '';
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) return toYmdBeijing(value) ?? '';
   if (typeof value === 'object') {
     if ('result' in value && value.result != null) return cellText(value.result as ExcelJS.CellValue);
     if ('text' in value && value.text) return String(value.text).trim();
@@ -121,7 +122,7 @@ function parseDate(value: ExcelJS.CellValue): string | null {
   if (value == null || value === '') return null;
   if (typeof value === 'number') return excelSerialToDate(value);
   if (value instanceof Date) {
-    return formatYmd(value.getFullYear(), value.getMonth() + 1, value.getDate());
+    return toYmdBeijing(value);
   }
   const text = cellText(value);
   if (!text) return null;
@@ -133,7 +134,7 @@ function parseDate(value: ExcelJS.CellValue): string | null {
   if (m) return formatYmd(Number(m[1]), Number(m[2]), Number(m[3]));
   const d = new Date(text);
   if (!Number.isNaN(d.getTime())) {
-    return formatYmd(d.getFullYear(), d.getMonth() + 1, d.getDate());
+    return toYmdBeijing(d);
   }
   return null;
 }

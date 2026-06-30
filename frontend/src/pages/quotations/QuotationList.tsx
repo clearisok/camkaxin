@@ -24,6 +24,7 @@ import {
   buildQuotationListColumns,
   estimateTableScrollX,
 } from '@/utils/quotationListColumns';
+import { todayYmdCompact } from '@/utils/beijingTime';
 
 const statusMap: Record<string, { color: string; text: string }> = {
   draft: { color: 'default', text: '草稿' },
@@ -151,7 +152,7 @@ export default function QuotationList() {
     }
     try {
       const res = await exportSummary(selectedRowKeys);
-      const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const date = todayYmdCompact();
       downloadBlob(new Blob([res.data]), `报价汇总_${date}.xlsx`);
       message.success('汇总导出成功');
     } catch (err) {

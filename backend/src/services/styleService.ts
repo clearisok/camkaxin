@@ -2,14 +2,19 @@ import { query, getClient } from '../config/database.js';
 import {
   EDITABLE_STYLE_FIELDS,
   enrichStyle,
+  enrichStyleForScheduling,
   type StyleRow,
 } from '../utils/styleCalculations.js';
-import { normalizeZonePatch, todayYmd } from '../utils/schedulingZone.js';
+import { loadAllExceptionsMap } from './calendarExceptionService.js';
+import { toYmdBeijing } from '../utils/beijingTime.js';
+import { normalizeZonePatch, inferZoneFromRow } from '../utils/schedulingZone.js';
+import { updateStyleSchedulingTimeline } from './schedulingOperations.js';
 import {
   calcUnscheduledQuantity,
   effectiveAllocatedQuantity,
   loadAllocatedMap,
 } from './styleAllocation.js';
+import { assertClosingMonthEditable } from './closingLockService.js';
 
 export interface StyleListQuery {
   view?: 'early_warning' | 'scheduling' | 'closing';
@@ -19,8 +24,46 @@ export interface StyleListQuery {
   group?: string;
   unscheduled_only?: boolean;
   search?: string;
+  /** 精确匹配款号（与 search 合用，忽略模糊匹配） */
+  search_exact?: boolean;
+  filter_field?: string;
+  filter_values?: string;
   sort_by?: string;
   sort_order?: 'asc' | 'desc';
+  /** 排除已关账锁定的月份（关账主视图） */
+  exclude_locked?: boolean;
+  /** 仅已关账锁定的月份（需配合 closing_month 或单独查全部锁定月） */
+  locked_only?: boolean;
+}
+
+export const STYLE_FILTERABLE_FIELDS = new Set([
+  'brand', 'quantity', 'style_name', 'salesperson', 'po_number',
+  'required_shipping_date', 'closing_month', 'remarks',
+  'fabric_readiness', 'accessories_readiness', 'fabric_structure',
+  'sample_progress', 'printing_embroidery', 'order_follower',
+  'processing_unit_price', 'processing_output_value', 'sales_price', 'sales_output_value',
+  'required_days', 'is_outsourced', 'group_name', 'outsourced_factory', 'outsourced_price',
+  'online_time', 'offline_time', 'first_bed_time', 'short_over_shipment',
+  'overseas_merchandiser', 'scheduling_remarks', 'scheduled_output', 'avg_daily_output',
+  'sort_order',
+]);
+
+const DATE_FILTER_FIELDS = new Set([
+  'online_time', 'offline_time', 'required_shipping_date', 'first_bed_time',
+]);
+
+const BOOLEAN_FILTER_FIELDS = new Set(['is_outsourced']);
+
+function filterFieldSqlExpr(field: string): string {
+  if (field === 'processing_output_value') return COMPUTED_SORT_SQL.processing_output_value;
+  if (field === 'sales_output_value') return COMPUTED_SORT_SQL.sales_output_value;
+  if (DATE_FILTER_FIELDS.has(field)) {
+    return `to_char(${field} AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD')`;
+  }
+  if (BOOLEAN_FILTER_FIELDS.has(field)) {
+    return `CASE WHEN ${field} THEN '是' ELSE '否' END`;
+  }
+  return `${field}::text`;
 }
 
 function parseCsvFilter(value?: string): string[] {
@@ -33,6 +76,16 @@ const STYLE_SORTABLE_FIELDS = new Set([
   'closing_month', 'required_shipping_date', 'processing_unit_price', 'sales_price',
   'processing_output_value', 'sales_output_value', 'created_at', 'updated_at',
 ]);
+
+/** 计算字段排序：对应 enrichStyle 中的 quantity × 单价 */
+const COMPUTED_SORT_SQL: Record<string, string> = {
+  processing_output_value: 'ROUND(COALESCE(quantity, 0) * COALESCE(processing_unit_price, 0), 2)',
+  sales_output_value: 'ROUND(COALESCE(quantity, 0) * COALESCE(sales_price, 0), 2)',
+};
+
+function sortExpression(sortBy: string): string {
+  return COMPUTED_SORT_SQL[sortBy] ?? sortBy;
+}
 
 function normalizeValue(key: string, value: unknown): unknown {
   if (value === undefined) return undefined;
@@ -75,8 +128,8 @@ function buildDiff(
   const diff: Record<string, { old: unknown; new: unknown }> = {};
   for (const [key, newVal] of Object.entries(updates)) {
     const oldVal = oldRow[key];
-    const oldStr = oldVal instanceof Date ? oldVal.toISOString().slice(0, 10) : oldVal;
-    const newStr = newVal instanceof Date ? newVal.toISOString().slice(0, 10) : newVal;
+    const oldStr = oldVal instanceof Date ? toYmdBeijing(oldVal) : oldVal;
+    const newStr = newVal instanceof Date ? toYmdBeijing(newVal) : newVal;
     if (String(oldStr ?? '') !== String(newStr ?? '')) {
       diff[key] = { old: oldVal ?? null, new: newVal ?? null };
     }
@@ -84,21 +137,9 @@ function buildDiff(
   return diff;
 }
 
-/** 生产规则：offline_time 早于今天（不含今天）且仍在产线/外发 → 自动进下线区 */
+/** 生产规则：不再自动移入下线区，由「下线通知」人工处理 */
 export async function applyAutoOfflineRules() {
-  const today = todayYmd();
-  const result = await query(
-    `UPDATE styles SET
-      scheduling_zone = 'offline',
-      group_name = NULL,
-      updated_at = NOW()
-     WHERE scheduling_zone IN ('group', 'outsource')
-       AND offline_time IS NOT NULL
-       AND offline_time < $1::date
-     RETURNING id`,
-    [today],
-  );
-  return result.rowCount ?? 0;
+  return 0;
 }
 
 export async function listStyles(params: StyleListQuery) {
@@ -151,24 +192,53 @@ export async function listStyles(params: StyleListQuery) {
     where += ` AND group_name = $${idx++}`;
     values.push(params.group);
   }
+  if (params.exclude_locked) {
+    where += ` AND (closing_month IS NULL OR closing_month = '' OR closing_month NOT IN (
+      SELECT closing_month FROM closing_month_locks
+    ))`;
+  }
+  if (params.locked_only) {
+    where += ` AND closing_month IN (SELECT closing_month FROM closing_month_locks)`;
+  }
   if (params.unscheduled_only) {
     where += ` AND parent_style_id IS NULL AND scheduling_zone = 'wait' AND COALESCE(quantity, 0) > COALESCE((
       SELECT SUM(c.scheduled_output) FROM styles c WHERE c.parent_style_id = styles.id
     ), 0)`;
   }
   if (params.search) {
-    where += ` AND (
-      style_number ILIKE $${idx} OR style_name ILIKE $${idx}
-      OR brand ILIKE $${idx} OR po_number ILIKE $${idx}
-    )`;
-    values.push(`%${params.search}%`);
-    idx++;
+    const term = params.search.trim();
+    if (term) {
+      if (params.search_exact) {
+        where += ` AND style_number = $${idx++}`;
+        values.push(term);
+      } else {
+        where += ` AND (
+          style_number ILIKE $${idx} OR style_name ILIKE $${idx}
+          OR brand ILIKE $${idx} OR po_number ILIKE $${idx}
+        )`;
+        values.push(`%${term}%`);
+        idx++;
+      }
+    }
+  }
+
+  if (params.filter_field && STYLE_FILTERABLE_FIELDS.has(params.filter_field)) {
+    const fieldValues = parseCsvFilter(params.filter_values);
+    const expr = filterFieldSqlExpr(params.filter_field);
+    if (fieldValues.length === 1) {
+      where += ` AND ${expr} = $${idx++}`;
+      values.push(fieldValues[0]);
+    } else if (fieldValues.length > 1) {
+      where += ` AND ${expr} = ANY($${idx++}::text[])`;
+      values.push(fieldValues);
+    }
   }
 
   let orderBy = 'ORDER BY created_at DESC';
   if (params.sort_by && STYLE_SORTABLE_FIELDS.has(params.sort_by)) {
     const dir = params.sort_order === 'desc' ? 'DESC' : 'ASC';
-    orderBy = `ORDER BY ${params.sort_by} ${dir} NULLS LAST, id ASC`;
+    const sortExpr = sortExpression(params.sort_by);
+    orderBy = `ORDER BY ${sortExpr} ${dir} NULLS LAST, id ASC`;
   } else if (params.view === 'scheduling') {
     orderBy = `ORDER BY
       CASE scheduling_zone
@@ -185,7 +255,11 @@ export async function listStyles(params: StyleListQuery) {
   }
 
   const result = await query(`SELECT * FROM styles ${where} ${orderBy}`, values);
-  const rows = result.rows.map((row) => enrichStyle(row as StyleRow));
+  const exceptions = params.view === 'scheduling' ? await loadAllExceptionsMap() : null;
+  const enrichRow = exceptions
+    ? (row: StyleRow) => enrichStyleForScheduling(row, exceptions)
+    : (row: StyleRow) => enrichStyle(row);
+  const rows = result.rows.map((row) => enrichRow(row as StyleRow));
   const parentIds = rows
     .filter((row) => row.parent_style_id == null)
     .map((row) => Number(row.id))
@@ -201,6 +275,50 @@ export async function listStyles(params: StyleListQuery) {
       unscheduled_quantity: calcUnscheduledQuantity(row.quantity, allocated),
     };
   });
+}
+
+/** 预警字段筛选：返回某字段的去重可选值 */
+export async function listStyleFieldOptions(
+  field: string,
+  params: Pick<StyleListQuery, 'view' | 'closing_month' | 'unscheduled_only'> & { q?: string },
+): Promise<string[]> {
+  if (!STYLE_FILTERABLE_FIELDS.has(field)) {
+    throw new Error('不支持的筛选字段');
+  }
+
+  let where = 'WHERE 1=1';
+  const values: unknown[] = [];
+  let idx = 1;
+
+  if (params.view === 'early_warning' || params.view === 'closing') {
+    where += ' AND parent_style_id IS NULL';
+  }
+  const closingMonths = parseCsvFilter(params.closing_month);
+  if (closingMonths.length === 1) {
+    where += ` AND closing_month = $${idx++}`;
+    values.push(closingMonths[0]);
+  } else if (closingMonths.length > 1) {
+    where += ` AND closing_month = ANY($${idx++}::text[])`;
+    values.push(closingMonths);
+  }
+  if (params.unscheduled_only) {
+    where += ` AND parent_style_id IS NULL AND scheduling_zone = 'wait' AND COALESCE(quantity, 0) > COALESCE((
+      SELECT SUM(c.scheduled_output) FROM styles c WHERE c.parent_style_id = styles.id
+    ), 0)`;
+  }
+
+  const expr = filterFieldSqlExpr(field);
+  where += ` AND ${expr} IS NOT NULL AND TRIM(${expr}::text) <> ''`;
+  if (params.q?.trim()) {
+    where += ` AND ${expr}::text ILIKE $${idx++}`;
+    values.push(`%${params.q.trim()}%`);
+  }
+
+  const result = await query(
+    `SELECT DISTINCT ${expr} AS v FROM styles ${where} ORDER BY v ASC LIMIT 800`,
+    values,
+  );
+  return result.rows.map((r) => String(r.v));
 }
 
 export async function getStyleById(id: number) {
@@ -239,8 +357,25 @@ export async function updateStyle(
   data: Record<string, unknown>,
   changedBy = 'system'
 ) {
+  const timelineKeys = ['online_time', 'offline_time', 'required_days'] as const;
+  if (timelineKeys.some((k) => k in data)) {
+    const existing = await getStyleById(id);
+    if (existing) {
+      await assertClosingMonthEditable(existing.closing_month as string | null);
+      const zone = inferZoneFromRow(existing as { scheduling_zone?: string; group_name?: string | null });
+      if (zone === 'group' || zone === 'outsource') {
+        return updateStyleSchedulingTimeline(id, data, changedBy);
+      }
+    }
+  }
+
   const existing = await getStyleById(id);
   if (!existing) throw new Error('Style not found');
+
+  await assertClosingMonthEditable(existing.closing_month as string | null);
+  if ('closing_month' in data) {
+    await assertClosingMonthEditable(data.closing_month as string | null);
+  }
 
   const updates = pickUpdates(data);
   if (Object.keys(updates).length === 0) return existing;
@@ -280,6 +415,10 @@ export async function bulkUpdateStyles(
       const existingResult = await client.query('SELECT * FROM styles WHERE id = $1', [id]);
       if (!existingResult.rows[0]) continue;
       const existing = existingResult.rows[0] as Record<string, unknown>;
+      await assertClosingMonthEditable(existing.closing_month as string | null);
+      if ('closing_month' in data) {
+        await assertClosingMonthEditable(data.closing_month as string | null);
+      }
       const patch = pickUpdates(data);
       const diff = buildDiff(existing, patch);
       if (Object.keys(diff).length === 0) {

@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react';
-import { Layout, Menu, Button, ConfigProvider } from 'antd';
+import { Layout, Menu, Button, ConfigProvider, Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -14,10 +14,16 @@ import {
   CalendarOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  UserOutlined,
+  LogoutOutlined,
+  SafetyOutlined,
+  UsergroupAddOutlined,
 } from '@ant-design/icons';
 import BrandLogo from '@/components/BrandLogo';
 import SchedulingHeaderTabs from '@/components/SchedulingHeaderTabs';
 import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { CONFIG_CHILD_KEYS, MENU_PERMISSION_MAP } from '@/constants/permissions';
 
 const { Sider, Header, Content } = Layout;
 
@@ -33,7 +39,10 @@ const PAGE_TITLES: Record<string, string> = {
   '/config/brands': '品牌管理',
   '/config/fabrics': '面料库',
   '/config/accessories': '辅料库',
+  '/config/holidays': '假期管理',
   '/config/settings': '系统设置',
+  '/config/users': '用户管理',
+  '/config/roles': '角色权限',
 };
 
 function resolvePageTitle(pathname: string): string {
@@ -48,16 +57,19 @@ function resolvePageTitle(pathname: string): string {
 
 const NAV_KEYS = [
   '/config/accessories',
+  '/config/holidays',
   '/config/settings',
   '/config/fabrics',
   '/config/brands',
   '/config/agents',
+  '/config/users',
+  '/config/roles',
   '/quotations',
   '/scheduling',
   '/',
 ] as const;
 
-const menuItems: MenuProps['items'] = [
+const ALL_MENU_ITEMS: MenuProps['items'] = [
   { key: '/', icon: <HomeOutlined />, label: '工作台' },
   { key: '/quotations', icon: <FileTextOutlined />, label: '报价单管理' },
   { key: '/scheduling', icon: <CalendarOutlined />, label: '预警排单' },
@@ -71,10 +83,45 @@ const menuItems: MenuProps['items'] = [
       { key: '/config/brands', icon: <TagOutlined />, label: '品牌管理' },
       { key: '/config/fabrics', icon: <SkinOutlined />, label: '面料库' },
       { key: '/config/accessories', icon: <ToolOutlined />, label: '辅料库' },
+      { key: '/config/holidays', icon: <CalendarOutlined />, label: '假期管理' },
+      { key: '/config/users', icon: <UsergroupAddOutlined />, label: '用户管理' },
+      { key: '/config/roles', icon: <SafetyOutlined />, label: '角色权限' },
     ],
   },
   { key: '/config/settings', icon: <SettingOutlined />, label: '系统设置' },
 ];
+
+function canAccessMenuKey(
+  key: string,
+  hasPermission: (code: string) => boolean,
+  hasAnyPermission: (codes: string[]) => boolean,
+): boolean {
+  const perm = MENU_PERMISSION_MAP[key];
+  if (!perm) return true;
+  if (Array.isArray(perm)) return hasAnyPermission(perm);
+  return hasPermission(perm);
+}
+
+function filterMenuItems(
+  items: MenuProps['items'],
+  hasPermission: (code: string) => boolean,
+  hasAnyPermission: (codes: string[]) => boolean,
+): MenuProps['items'] {
+  if (!items) return [];
+  return items
+    .map((item) => {
+      if (!item || item.type === 'divider') return item;
+      if ('children' in item && item.children) {
+        const children = filterMenuItems(item.children, hasPermission, hasAnyPermission);
+        if (!children?.length) return null;
+        return { ...item, children };
+      }
+      const key = String(item.key ?? '');
+      if (!canAccessMenuKey(key, hasPermission, hasAnyPermission)) return null;
+      return item;
+    })
+    .filter(Boolean) as MenuProps['items'];
+}
 
 const siderMenuTheme = {
   components: {
@@ -95,9 +142,7 @@ function resolveSelectedKey(pathname: string): string {
 }
 
 function isConfigChildPath(pathname: string): boolean {
-  return ['/config/agents', '/config/brands', '/config/fabrics', '/config/accessories'].some(
-    (key) => pathname.startsWith(key)
-  );
+  return CONFIG_CHILD_KEYS.some((key) => pathname.startsWith(key));
 }
 
 function SidebarToggle() {
@@ -118,6 +163,12 @@ function AppSider() {
   const navigate = useNavigate();
   const location = useLocation();
   const { collapsed } = useSidebar();
+  const { hasPermission, hasAnyPermission } = useAuth();
+
+  const menuItems = useMemo(
+    () => filterMenuItems(ALL_MENU_ITEMS, hasPermission, hasAnyPermission),
+    [hasPermission, hasAnyPermission],
+  );
 
   const selectedKey = useMemo(
     () => resolveSelectedKey(location.pathname),
@@ -185,8 +236,25 @@ function AppSider() {
 
 const AppMain = memo(function AppMain() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const showSchedulingTabs = location.pathname === '/scheduling';
   const pageTitle = useMemo(() => resolvePageTitle(location.pathname), [location.pathname]);
+
+  const userMenuItems: MenuProps['items'] = [
+    {
+      key: 'logout',
+      icon: <LogoutOutlined />,
+      label: '退出登录',
+    },
+  ];
+
+  const handleUserMenuClick: MenuProps['onClick'] = async ({ key }) => {
+    if (key === 'logout') {
+      await logout();
+      navigate('/login', { replace: true });
+    }
+  };
 
   return (
     <Layout className="h-screen flex flex-col app-main-layout">
@@ -201,6 +269,11 @@ const AppMain = memo(function AppMain() {
               </div>
             )}
           </div>
+          <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }} placement="bottomRight">
+            <Button type="text" className="app-header-user" icon={<UserOutlined />}>
+              {user?.displayName || user?.username || '用户'}
+            </Button>
+          </Dropdown>
         </div>
       </Header>
       <Content className="app-main-content flex-1 overflow-y-auto">

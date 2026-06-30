@@ -267,3 +267,17 @@ CREATE INDEX IF NOT EXISTS idx_styles_parent_style_id ON styles(parent_style_id)
 CREATE INDEX IF NOT EXISTS idx_style_histories_style_id ON style_histories(style_id);
 CREATE INDEX IF NOT EXISTS idx_item_fabrics_item ON item_fabrics(item_id);
 CREATE INDEX IF NOT EXISTS idx_item_accessories_item ON item_accessories(item_id);
+
+CREATE TABLE IF NOT EXISTS calendar_exceptions (
+  id SERIAL PRIMARY KEY,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  day_type VARCHAR(10) NOT NULL CHECK (day_type IN ('holiday', 'workday')),
+  name VARCHAR(200),
+  source VARCHAR(20) NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'cambodia')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_calendar_exceptions_range ON calendar_exceptions(start_date, end_date);
+CREATE INDEX IF NOT EXISTS idx_calendar_exceptions_source ON calendar_exceptions(source);

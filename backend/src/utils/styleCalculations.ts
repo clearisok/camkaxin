@@ -1,4 +1,7 @@
 import { isAwaitingSchedule } from '../services/styleAllocation.js';
+import type { CalendarExceptionMap } from './businessDays.js';
+import { countNonWorkdaysInScheduleSpan } from './businessDays.js';
+import { toYmdBeijing } from './beijingTime.js';
 
 export interface StyleRow {
   id?: number;
@@ -64,6 +67,20 @@ export function enrichStyle(row: StyleRow): StyleRow {
     processing_output_value,
     sales_output_value,
   };
+}
+
+/** 排单列表：附加假期天数（[online, offline] 内非工作日，含上线/下线当天） */
+export function enrichStyleForScheduling(
+  row: StyleRow,
+  exceptions: CalendarExceptionMap,
+): StyleRow {
+  const base = enrichStyle(row);
+  const online = toYmdBeijing(row.online_time);
+  const offline = toYmdBeijing(row.offline_time);
+  const holiday_days = online && offline
+    ? countNonWorkdaysInScheduleSpan(online, offline, exceptions)
+    : null;
+  return { ...base, holiday_days };
 }
 
 export function isUnscheduled(row: StyleRow): boolean {

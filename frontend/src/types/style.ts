@@ -37,6 +37,8 @@ export interface StyleRecord {
   scheduling_zone?: 'wait' | 'group' | 'outsource' | 'offline';
   sort_order?: number | null;
   required_days?: number | null;
+  /** [online, offline] 内非工作日数（含上线/下线当天；含周日、假期） */
+  holiday_days?: number | null;
   parent_style_id?: number | null;
   scheduling_remarks?: string | null;
   /** 母单：已排入各组/外发的累计数量 */
@@ -60,6 +62,17 @@ export interface MonthlySummaryItem {
   total_sales_output_value: number;
   count: number;
 }
+
+export interface ClosingMonthLock {
+  closing_month: string;
+  locked_at: string;
+  locked_by: string;
+  style_count: number;
+  total_sales_output_value: number;
+  total_processing_output_value: number;
+}
+
+export type ClosingOrderStatus = 'outsourced' | 'not_online' | 'online' | 'offline';
 
 export type SchedulingViewType = 'early_warning' | 'scheduling' | 'closing';
 
@@ -96,6 +109,7 @@ export const STYLE_FIELD_LABELS: Record<string, string> = {
   scheduling_zone: '排单区位',
   sort_order: '排单顺位',
   required_days: '所需天数',
+  holiday_days: '假期天数',
 };
 
 export const CLOSING_MONTH_OPTIONS = [

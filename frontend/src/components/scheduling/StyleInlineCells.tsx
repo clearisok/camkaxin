@@ -2,6 +2,7 @@ import { Input, InputNumber, Select, DatePicker, Switch } from 'antd';
 import dayjs from 'dayjs';
 import type { Brand } from '@/types';
 import type { StyleRecord } from '@/types/style';
+import { formatDateBeijing } from '@/utils/beijingTime';
 import ClosingMonthSelect from '@/components/scheduling/ClosingMonthSelect';
 import { defaultClosingMonth } from '@/utils/schedulingFilters';
 import { GROUP_OPTIONS, SHORT_OVER_OPTIONS } from '@/utils/styleFieldOptions';
@@ -55,12 +56,14 @@ export function StyleNumberCell({
 }
 
 export function StyleDateCell({ record, field, updateLocal, saveField, savingId }: CellProps) {
-  const value = record[field] as string | undefined;
+  const raw = record[field] as string | undefined;
+  const ymd = raw ? formatDateBeijing(raw) : undefined;
   return (
     <DatePicker
       size="small"
       className="scheduling-inline-input w-full"
-      value={value ? dayjs(value) : undefined}
+      value={ymd && ymd !== '—' ? dayjs(ymd) : undefined}
+      format="YYYY-MM-DD"
       onChange={(d) => {
         const val = d ? d.format('YYYY-MM-DD') : undefined;
         updateLocal(record.id, { [field]: val } as Partial<StyleRecord>);

@@ -10,6 +10,10 @@ import {
   reviseItem,
   computeItemTotals,
 } from '../services/quotationService.js';
+import {
+  assertFieldsEditable,
+  collectQuotationFieldCodes,
+} from '../services/fieldPermissionService.js';
 
 const router = Router();
 
@@ -109,20 +113,28 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 router.post('/', async (req: Request, res: Response) => {
   try {
+    if (req.user) {
+      assertFieldsEditable(req.user, collectQuotationFieldCodes(req.body as Record<string, unknown>));
+    }
     const quotation = await createQuotation(req.body);
     res.status(201).json(quotation);
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    const msg = String(err instanceof Error ? err.message : err);
+    res.status(msg.includes('无权限') ? 403 : 500).json({ error: msg });
   }
 });
 
 router.put('/:id', async (req: Request, res: Response) => {
   try {
+    if (req.user) {
+      assertFieldsEditable(req.user, collectQuotationFieldCodes(req.body as Record<string, unknown>));
+    }
     const quotation = await updateQuotation(parseId(req.params.id), req.body);
     if (!quotation) return res.status(404).json({ error: 'Not found' });
     res.json(quotation);
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    const msg = String(err instanceof Error ? err.message : err);
+    res.status(msg.includes('无权限') ? 403 : 500).json({ error: msg });
   }
 });
 
@@ -138,10 +150,14 @@ router.post('/:id/copy', async (req: Request, res: Response) => {
 router.post('/items/:itemId/revise', async (req: Request, res: Response) => {
   try {
     const { update_note, ...itemData } = req.body;
+    if (req.user) {
+      assertFieldsEditable(req.user, collectQuotationFieldCodes({ items: [itemData] }));
+    }
     const quotation = await reviseItem(parseId(req.params.itemId), itemData, update_note);
     res.json(quotation);
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    const msg = String(err instanceof Error ? err.message : err);
+    res.status(msg.includes('无权限') ? 403 : 500).json({ error: msg });
   }
 });
 

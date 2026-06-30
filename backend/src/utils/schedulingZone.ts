@@ -1,3 +1,9 @@
+import {
+  addDaysYmdBeijing,
+  todayYmdBeijing,
+  toYmdBeijing,
+} from './beijingTime.js';
+
 export type SchedulingZone = 'wait' | 'group' | 'outsource' | 'offline';
 
 export const PRODUCTION_GROUP_IDS = [
@@ -61,36 +67,15 @@ export function normalizeZonePatch(patch: Record<string, unknown>): Record<strin
   return next;
 }
 
-const YMD_RE = /^(\d{4})-(\d{2})-(\d{2})/;
-
-/** 将数据库 date / ISO 字符串规范为 YYYY-MM-DD（使用本地日历日，避免 Date#toString 截断） */
+/** 将数据库 date / ISO 字符串规范为北京日历日 YYYY-MM-DD */
 export function toYmd(raw: string | Date | null | undefined): string | null {
-  if (raw == null) return null;
-  if (raw instanceof Date) {
-    if (Number.isNaN(raw.getTime())) return null;
-    const y = raw.getFullYear();
-    const m = String(raw.getMonth() + 1).padStart(2, '0');
-    const d = String(raw.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  const s = String(raw).trim();
-  const match = YMD_RE.exec(s);
-  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
-  const parsed = new Date(s);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return toYmd(parsed);
+  return toYmdBeijing(raw);
 }
 
 export function todayYmd(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return todayYmdBeijing();
 }
 
 export function addDaysYmd(baseYmd: string, days: number): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(baseYmd)) {
-    throw new Error(`无效的日期基准: ${baseYmd}`);
-  }
-  const d = new Date(`${baseYmd}T12:00:00`);
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return addDaysYmdBeijing(baseYmd, days);
 }

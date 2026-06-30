@@ -16,6 +16,7 @@
     "db:seed": "cd backend && npm run db:seed",
     "db:migrate": "cd backend && npm run db:migrate",
     "db:seed-scheduling": "cd backend && npm run db:seed-scheduling",
+    "db:seed-auth": "cd backend && npm run db:seed-auth",
     "db:prune-shipping": "cd backend && npm run db:prune-shipping"
   },
   "devDependencies": {

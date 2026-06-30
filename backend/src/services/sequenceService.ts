@@ -1,10 +1,10 @@
 import { query, getClient } from '../config/database.js';
 import { formatQuotationNo, formatItemNo } from '../utils/calculation.js';
+import { todayYmdCompactBeijing, todayYmdBeijing } from '../utils/beijingTime.js';
 
 /** 获取下一个报价单号 */
 export async function nextQuotationNo(): Promise<string> {
-  const today = new Date();
-  const dateKey = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+  const dateKey = todayYmdCompactBeijing();
 
   const client = await getClient();
   try {
@@ -31,6 +31,7 @@ export async function nextQuotationNo(): Promise<string> {
       );
     }
     await client.query('COMMIT');
+    const today = new Date(`${todayYmdBeijing()}T12:00:00+08:00`);
     return formatQuotationNo(today, seq);
   } catch (e) {
     await client.query('ROLLBACK');

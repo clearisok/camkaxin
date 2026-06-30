@@ -13,10 +13,11 @@ import ReadOnlyCell from '@/components/scheduling/ReadOnlyCell';
 import StyleRowEditDrawer from '@/components/scheduling/StyleRowEditDrawer';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
-  defaultClosingMonth,
-  saveEarlyWarningSearchScope,
-  type EarlyWarningSearchScope,
-} from '@/utils/schedulingFilters';
+  defaultClosingMonthRange,
+  closingMonthRangeToCsv,
+  normalizeClosingMonthRange,
+  type ClosingMonthRange,
+} from '@/utils/closingMonthRange';
 import {
   clearEarlyWarningListCache,
   filtersMatch,
@@ -28,16 +29,19 @@ import {
   saveEarlyWarningListCache,
 } from '@/utils/earlyWarningSession';
 import { fillEarlyWarningGaps, getStyles } from '@/api/styles';
-import { getBrands } from '@/api';
-import type { Brand } from '@/types';
 import type { StyleRecord } from '@/types/style';
-import ClosingMonthSelect from '@/components/scheduling/ClosingMonthSelect';
+import ClosingMonthRangeFilter from '@/components/scheduling/ClosingMonthRangeFilter';
+import {
+  saveEarlyWarningSearchScope,
+  type EarlyWarningSearchScope,
+} from '@/utils/schedulingFilters';
+import EarlyWarningFieldFilter from '@/components/scheduling/EarlyWarningFieldFilter';
+import type { FieldFilterState } from '@/utils/earlyWarningFieldFilter';
 import {
   exportEarlyWarningCsv,
-  formatProcessingOutputDisplay,
-  formatSalesOutputDisplay,
-  formatSumProcessingOutput,
-  formatSumSalesOutput,
+  formatOutputValueNumber,
+  formatSumProcessingOutputNumber,
+  formatSumSalesOutputNumber,
   sumOutputValues,
 } from '@/utils/earlyWarningExport';
 import { enrichStyleClient, formatDate, isUnscheduled } from '@/utils/styleCalculations';
@@ -87,6 +91,29 @@ function saveSortState(state: SortState) {
   localStorage.setItem(EARLY_WARNING_SORT_STORAGE_KEY, JSON.stringify(state));
 }
 
+function mergeStyleRowsById(...groups: StyleRecord[][]): StyleRecord[] {
+  const map = new Map<number, StyleRecord>();
+  for (const group of groups) {
+    for (const row of group) map.set(row.id, row);
+  }
+  return Array.from(map.values());
+}
+
+function sortStylesClient(rows: StyleRecord[], sortState: SortState): StyleRecord[] {
+  if (!sortState.field || !sortState.order) return rows;
+  const field = sortState.field;
+  const dir = sortState.order === 'desc' ? -1 : 1;
+  return [...rows].sort((a, b) => {
+    const av = a[field as keyof StyleRecord];
+    const bv = b[field as keyof StyleRecord];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+    return String(av).localeCompare(String(bv), 'zh-CN') * dir;
+  });
+}
+
 function withServerSort<T extends { key?: string }>(
   col: T,
   sortState: SortState,
@@ -106,7 +133,11 @@ function withServerSort<T extends { key?: string }>(
 function getInitialEarlyWarningState() {
   const filters = loadEarlyWarningFilters();
   const cache = loadEarlyWarningListCache();
-  const restoreFromCache = !!(cache && filtersMatch(cache, filters));
+  const restoreFromCache = !!(
+    cache
+    && filtersMatch(cache, filters)
+    && filters.searchScope !== 'accumulate'
+  );
   return { filters, cache, restoreFromCache };
 }
 
@@ -115,16 +146,20 @@ export default function EarlyWarningView() {
   const initialState = useMemo(() => getInitialEarlyWarningState(), []);
   const { filters: initialFilters, cache: initialCache, restoreFromCache } = initialState;
 
-  const [data, setData] = useState<StyleRecord[]>(() => (restoreFromCache ? initialCache!.data : []));
-  const [brands, setBrands] = useState<Brand[]>([]);
+  const [data, setData] = useState<StyleRecord[]>(() => {
+    if (restoreFromCache) return initialCache!.data;
+    if (initialFilters.searchScope === 'accumulate') return [];
+    return [];
+  });
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState(initialFilters.searchInput);
   const debouncedSearch = useDebouncedValue(searchInput, 300);
   const [searchScope, setSearchScope] = useState<EarlyWarningSearchScope>(initialFilters.searchScope);
+  const isAccumulateMode = searchScope === 'accumulate';
   const useGlobalSearch = searchScope === 'global' && !!debouncedSearch;
-  const [brandFilters, setBrandFilters] = useState<string[]>(initialFilters.brandFilters);
-  const [salespersonFilters, setSalespersonFilters] = useState<string[]>(initialFilters.salespersonFilters);
-  const [closingMonthFilters, setClosingMonthFilters] = useState<string[]>(initialFilters.closingMonthFilters);
+  const [accumulatedRows, setAccumulatedRows] = useState<StyleRecord[]>([]);
+  const [fieldFilter, setFieldFilter] = useState<FieldFilterState | null>(initialFilters.fieldFilter);
+  const [closingMonthRange, setClosingMonthRange] = useState<ClosingMonthRange>(initialFilters.closingMonthRange);
   const [unscheduledOnly, setUnscheduledOnly] = useState(initialFilters.unscheduledOnly);
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>(() =>
     restoreFromCache ? initialCache!.selectedRowKeys : [],
@@ -157,27 +192,17 @@ export default function EarlyWarningView() {
     [normalizePrefs, persistColumnPrefs],
   );
 
-  useEffect(() => {
-    getBrands()
-      .then((res) => setBrands(res.data || []))
-      .catch((err) => message.error(String(err)));
-  }, []);
-
-  const salespersonFilterOptions = useMemo(() => {
-    const selectedBrands = brandFilters.length
-      ? brands.filter((b) => brandFilters.includes(b.name))
-      : brands;
-    const source = selectedBrands.flatMap((b) => b.agents || []);
-    const names = [...new Set(source.map((a) => a.name).filter(Boolean))];
-    return names.sort((a, b) => a.localeCompare(b, 'zh-CN')).map((name) => ({ value: name, label: name }));
-  }, [brands, brandFilters]);
+  const displayData = useMemo(() => {
+    if (!isAccumulateMode) return data;
+    return sortStylesClient(data, sortState);
+  }, [data, isAccumulateMode, sortState]);
 
   const selectedRows = useMemo(
-    () => data.filter((row) => selectedRowKeys.includes(row.id)),
-    [data, selectedRowKeys],
+    () => displayData.filter((row) => selectedRowKeys.includes(row.id)),
+    [displayData, selectedRowKeys],
   );
 
-  const allTotals = useMemo(() => sumOutputValues(data), [data]);
+  const allTotals = useMemo(() => sumOutputValues(displayData), [displayData]);
   const selectionTotals = useMemo(() => sumOutputValues(selectedRows), [selectedRows]);
   const hasSelection = selectedRowKeys.length > 0;
   const outputTotals = hasSelection ? selectionTotals : allTotals;
@@ -198,9 +223,9 @@ export default function EarlyWarningView() {
         view: 'early_warning',
         unscheduled_only: useGlobalSearch ? undefined : unscheduledOnly,
         search: debouncedSearch || undefined,
-        brand: useGlobalSearch ? undefined : (brandFilters.length ? brandFilters.join(',') : undefined),
-        salesperson: useGlobalSearch ? undefined : (salespersonFilters.length ? salespersonFilters.join(',') : undefined),
-        closing_month: useGlobalSearch ? undefined : (closingMonthFilters.length ? closingMonthFilters.join(',') : undefined),
+        closing_month: useGlobalSearch ? undefined : closingMonthRangeToCsv(closingMonthRange) || undefined,
+        filter_field: useGlobalSearch ? undefined : fieldFilter?.field,
+        filter_values: useGlobalSearch ? undefined : (fieldFilter?.values.length ? fieldFilter.values.join(',') : undefined),
         sort_by: sortState.field,
         sort_order: sortState.order,
       });
@@ -210,18 +235,62 @@ export default function EarlyWarningView() {
     } finally {
       setLoading(false);
     }
-  }, [unscheduledOnly, debouncedSearch, useGlobalSearch, brandFilters, salespersonFilters, closingMonthFilters, sortState]);
+  }, [unscheduledOnly, debouncedSearch, useGlobalSearch, fieldFilter, closingMonthRange, sortState]);
+
+  const handleAccumulateSearch = useCallback(async (term?: string) => {
+    const trimmed = (term ?? searchInput).trim();
+    setLoading(true);
+    try {
+      if (!gapsFilledRef.current) {
+        try {
+          await fillEarlyWarningGaps();
+        } catch {
+          /* 补全失败不阻断列表加载 */
+        }
+        gapsFilledRef.current = true;
+        markEarlyWarningGapsFilled();
+      }
+
+      const selectedFromView = data.filter((row) => selectedRowKeys.includes(row.id));
+      const mergedAccumulated = mergeStyleRowsById(accumulatedRows, selectedFromView);
+      setAccumulatedRows(mergedAccumulated);
+
+      if (!trimmed) {
+        setData(mergedAccumulated);
+        setSearchInput('');
+        resetPage();
+        return;
+      }
+
+      const res = await getStyles({
+        view: 'early_warning',
+        search: trimmed,
+        sort_by: sortState.field,
+        sort_order: sortState.order,
+      });
+      const hits = (res.data || []).map(enrichStyleClient);
+      if (hits.length === 0) {
+        message.info(`未找到匹配「${trimmed}」的款式`);
+      }
+      setData(mergeStyleRowsById(mergedAccumulated, hits));
+      setSearchInput('');
+      resetPage();
+    } catch (err) {
+      message.error(String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [searchInput, data, selectedRowKeys, accumulatedRows, sortState, resetPage]);
 
   useEffect(() => {
     saveEarlyWarningFilters({
       searchInput,
       searchScope,
-      brandFilters,
-      salespersonFilters,
-      closingMonthFilters,
+      fieldFilter,
+      closingMonthRange,
       unscheduledOnly,
     });
-  }, [searchInput, searchScope, brandFilters, salespersonFilters, closingMonthFilters, unscheduledOnly]);
+  }, [searchInput, searchScope, fieldFilter, closingMonthRange, unscheduledOnly]);
 
   useEffect(() => {
     if (skipInitialLoadRef.current) {
@@ -229,24 +298,25 @@ export default function EarlyWarningView() {
       clearEarlyWarningListCache();
       return;
     }
+    if (isAccumulateMode) return;
     loadData();
-  }, [loadData]);
+  }, [loadData, isAccumulateMode]);
 
   useEffect(() => {
     if (skipFilterResetPageRef.current) {
       skipFilterResetPageRef.current = false;
       return;
     }
+    if (isAccumulateMode) return;
     resetPage();
-  }, [unscheduledOnly, debouncedSearch, useGlobalSearch, brandFilters, salespersonFilters, closingMonthFilters, sortState, resetPage]);
+  }, [unscheduledOnly, debouncedSearch, useGlobalSearch, fieldFilter, closingMonthRange, sortState, resetPage, isAccumulateMode]);
 
   const handleOpenStyleDetail = useCallback((record: StyleRecord) => {
     saveEarlyWarningListCache({
       searchInput,
       searchScope,
-      brandFilters,
-      salespersonFilters,
-      closingMonthFilters,
+      fieldFilter,
+      closingMonthRange,
       unscheduledOnly,
       data,
       selectedRowKeys,
@@ -254,7 +324,7 @@ export default function EarlyWarningView() {
     });
     navigate(`/scheduling/styles/${record.id}`, { state: { schedulingTab: 'early_warning' } });
   }, [
-    searchInput, searchScope, brandFilters, salespersonFilters, closingMonthFilters,
+    searchInput, searchScope, fieldFilter, closingMonthRange,
     unscheduledOnly, data, selectedRowKeys, page, navigate,
   ]);
 
@@ -263,16 +333,29 @@ export default function EarlyWarningView() {
     setSearchInput('');
     setSearchScope('local');
     saveEarlyWarningSearchScope('local');
-    setBrandFilters([]);
-    setSalespersonFilters([]);
-    setClosingMonthFilters([defaultClosingMonth()]);
+    setFieldFilter(null);
+    setClosingMonthRange(defaultClosingMonthRange());
     setUnscheduledOnly(false);
     setSelectedRowKeys([]);
+    setAccumulatedRows([]);
     const defaultSort: SortState = {};
     setSortState(defaultSort);
     saveSortState(defaultSort);
     setPage(1);
   };
+
+  const clearAccumulated = () => {
+    setAccumulatedRows([]);
+    if (isAccumulateMode) {
+      setData([]);
+      setSelectedRowKeys([]);
+    }
+  };
+
+  const patchRowInLists = useCallback((updated: StyleRecord) => {
+    setData((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+    setAccumulatedRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+  }, []);
 
   const handleTableChange: TableProps<StyleRecord>['onChange'] = (pagination, _filters, sorter) => {
     applyPagination(pagination as TablePaginationConfig);
@@ -409,16 +492,16 @@ export default function EarlyWarningView() {
       render: (v: number) => <ReadOnlyCell value={v} />,
     }, sortState),
     withServerSort({
-      title: '加工产值', dataIndex: 'processing_output_value', key: 'processing_output_value', width: 120,
-      render: (v: number) => formatProcessingOutputDisplay(v),
+      title: '加工产值（万美金）', dataIndex: 'processing_output_value', key: 'processing_output_value', width: 120,
+      render: (v: number) => <ReadOnlyCell value={formatOutputValueNumber(v)} />,
     }, sortState),
     withServerSort({
       title: '销售单价', dataIndex: 'sales_price', key: 'sales_price', width: 100,
       render: (v: number) => <ReadOnlyCell value={v} />,
     }, sortState),
     withServerSort({
-      title: '销售产值', dataIndex: 'sales_output_value', key: 'sales_output_value', width: 120,
-      render: (v: number) => formatSalesOutputDisplay(v),
+      title: '销售产值（万元）', dataIndex: 'sales_output_value', key: 'sales_output_value', width: 120,
+      render: (v: number) => <ReadOnlyCell value={formatOutputValueNumber(v)} />,
     }, sortState),
     {
       title: '操作', key: 'action', width: 80, fixed: 'right',
@@ -461,7 +544,13 @@ export default function EarlyWarningView() {
           <div className="filter-toolbar">
             <FilterField label="搜索">
               <Space.Compact className="early-warning-search-compact">
-                <Tooltip title={searchScope === 'local' ? '在当前筛选条件下搜索' : '忽略筛选，在全库款式中搜索'}>
+                <Tooltip title={
+                  searchScope === 'local'
+                    ? '在当前筛选条件下搜索'
+                    : searchScope === 'global'
+                      ? '忽略筛选，在全库款式中搜索'
+                      : '模糊搜索：勾选需要的行后回车搜下一款；清空搜索框仅显示已累计款式'
+                }>
                   <Select
                     value={searchScope}
                     className="early-warning-search-scope"
@@ -469,68 +558,63 @@ export default function EarlyWarningView() {
                     options={[
                       { value: 'local', label: '局部' },
                       { value: 'global', label: '全局' },
+                      { value: 'accumulate', label: '累计' },
                     ]}
                     onChange={(v: EarlyWarningSearchScope) => {
                       setSearchScope(v);
                       saveEarlyWarningSearchScope(v);
+                      if (v === 'accumulate') {
+                        setSearchInput('');
+                        setData(accumulatedRows);
+                        skipFilterResetPageRef.current = true;
+                      }
                     }}
                   />
                 </Tooltip>
                 <Input.Search
-                  placeholder={searchScope === 'local' ? '款号 / 品牌 / PO' : '全库搜索款号 / 品牌 / PO'}
+                  placeholder={
+                    isAccumulateMode
+                      ? '款号 / 品牌 / PO，勾选后回车搜下一款'
+                      : searchScope === 'local'
+                        ? '款号 / 品牌 / PO'
+                        : '全库搜索款号 / 品牌 / PO'
+                  }
                   allowClear
                   className="early-warning-search-input"
                   value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  onSearch={setSearchInput}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSearchInput(v);
+                    if (isAccumulateMode && v === '') {
+                      void handleAccumulateSearch('');
+                    }
+                  }}
+                  onSearch={(v) => {
+                    if (isAccumulateMode) {
+                      void handleAccumulateSearch(v);
+                    } else {
+                      setSearchInput(v);
+                    }
+                  }}
                 />
               </Space.Compact>
             </FilterField>
-            <FilterField label="品牌">
-              <Select
-                mode="multiple"
-                placeholder="全部"
-                allowClear
-                showSearch
-                maxTagCount="responsive"
-                optionFilterProp="label"
-                style={{ minWidth: 160 }}
-                value={brandFilters}
-                onChange={(v) => {
-                  setBrandFilters(v);
-                  setSalespersonFilters([]);
-                }}
-                options={brands.map((b) => ({ value: b.name, label: b.name }))}
+            <FilterField label="字段筛选">
+              <EarlyWarningFieldFilter
+                value={fieldFilter}
+                onChange={setFieldFilter}
+                closingMonthRange={closingMonthRange}
+                unscheduledOnly={unscheduledOnly}
+                disabled={useGlobalSearch || isAccumulateMode}
               />
             </FilterField>
-            <FilterField label="业务员">
-              <Select
-                mode="multiple"
-                placeholder="全部"
-                allowClear
-                showSearch
-                maxTagCount="responsive"
-                optionFilterProp="label"
-                style={{ minWidth: 150 }}
-                value={salespersonFilters}
-                onChange={setSalespersonFilters}
-                options={salespersonFilterOptions}
-              />
-            </FilterField>
-            <FilterField label="关账月份">
-              <ClosingMonthSelect
-                mode="multiple"
-                placeholder="全部"
-                allowClear
-                maxTagCount="responsive"
-                style={{ minWidth: 160 }}
-                value={closingMonthFilters}
-                onChange={setClosingMonthFilters}
-                scrollToMonth={closingMonthFilters[0] || defaultClosingMonth()}
-              />
-            </FilterField>
+            <ClosingMonthRangeFilter
+              value={closingMonthRange}
+              onChange={(range) => setClosingMonthRange(normalizeClosingMonthRange(range.startMonth, range.endMonth))}
+              disabled={isAccumulateMode}
+            />
             <FilterField label="仅未排单">
-              <Switch checked={unscheduledOnly} onChange={setUnscheduledOnly} />
+              <Switch checked={unscheduledOnly} onChange={setUnscheduledOnly} disabled={isAccumulateMode} />
             </FilterField>
             <Button icon={<ReloadOutlined />} onClick={resetFilters}>
               重置
@@ -560,20 +644,33 @@ export default function EarlyWarningView() {
           </Space>
         </Space>
         <p className="scheduling-toolbar-hint">
-          支持全选/多选筛选；加工产值与销售产值始终显示合计（未勾选时统计当前筛选结果，勾选后统计选中行）。局部搜索在当前筛选内查找，全局搜索将忽略品牌/业务员/关账月份等条件。
+          {isAccumulateMode
+            ? '累计模式：输入关键词并回车（模糊匹配款号/品牌/PO）；勾选需要的行后再搜下一款，已勾选款式会加入累计列表；清空搜索框仅显示累计区。'
+            : '支持全选/多选筛选；加工产值与销售产值始终显示合计（未勾选时统计当前筛选结果，勾选后统计选中行）。局部搜索在当前筛选内查找，全局搜索将忽略字段筛选/关账月份等条件。'}
         </p>
       </div>
 
       <div className="early-warning-selection-bar card-panel mb-4">
         <span>
-          {hasSelection ? (
+          {isAccumulateMode ? (
+            <>
+              已累计 <strong>{accumulatedRows.length}</strong> 条
+              · 当前列表 <strong>{displayData.length}</strong> 条
+              {hasSelection && <> · 已选 <strong>{selectedRowKeys.length}</strong> 条</>}
+            </>
+          ) : hasSelection ? (
             <>已选 <strong>{selectedRowKeys.length}</strong> 条</>
           ) : (
-            <>当前筛选 <strong>{data.length}</strong> 条</>
+            <>当前筛选 <strong>{displayData.length}</strong> 条</>
           )}
         </span>
-        <span>加工产值合计 <strong>{formatSumProcessingOutput(outputTotals.processing)}</strong></span>
-        <span>销售产值合计 <strong>{formatSumSalesOutput(outputTotals.sales)}</strong></span>
+        <span>加工产值合计 <strong>{formatSumProcessingOutputNumber(outputTotals.processing)}</strong> <span className="text-gray-400 text-sm">万美金</span></span>
+        <span>销售产值合计 <strong>{formatSumSalesOutputNumber(outputTotals.sales)}</strong> <span className="text-gray-400 text-sm">万元</span></span>
+        {isAccumulateMode && accumulatedRows.length > 0 && (
+          <Button type="link" className="!px-0" onClick={clearAccumulated}>
+            清空累计
+          </Button>
+        )}
         {hasSelection && (
           <Button type="link" className="!px-0" onClick={() => setSelectedRowKeys([])}>
             清空选择
@@ -581,16 +678,17 @@ export default function EarlyWarningView() {
         )}
       </div>
 
-      <div className="card-panel">
+      <div className="card-panel early-warning-table-panel">
         <Table
           className="quotation-list-table scheduling-readonly-table"
           rowKey="id"
           tableLayout="fixed"
           components={TABLE_HEADER_COMPONENTS}
           columns={columns}
-          dataSource={data}
+          dataSource={displayData}
           loading={loading}
-          scroll={{ x: scrollX }}
+          scroll={{ x: scrollX, y: 'calc(100vh - 320px)' }}
+          sticky
           pagination={{
             ...paginationConfig,
             showTotal: (t) => `共 ${t} 条`,
@@ -604,7 +702,7 @@ export default function EarlyWarningView() {
               {
                 key: 'select-all-filtered',
                 text: '全选筛选结果',
-                onSelect: () => setSelectedRowKeys(data.map((r) => r.id)),
+                onSelect: () => setSelectedRowKeys(displayData.map((r) => r.id)),
               },
               Table.SELECTION_INVERT,
               Table.SELECTION_NONE,
@@ -627,8 +725,7 @@ export default function EarlyWarningView() {
         open={!!editRecord}
         onClose={() => setEditRecord(null)}
         onSaved={(updated) => {
-          const enriched = enrichStyleClient(updated);
-          setData((prev) => prev.map((row) => (row.id === enriched.id ? enriched : row)));
+          patchRowInLists(enrichStyleClient(updated));
         }}
       />
     </div>

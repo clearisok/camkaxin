@@ -19,9 +19,9 @@ export const EARLY_WARNING_COLUMNS: ColumnPrefItem[] = [
   { key: 'printing_embroidery', title: '印绣花', defaultWidth: 100 },
   { key: 'order_follower', title: '跟单员', defaultWidth: 96 },
   { key: 'processing_unit_price', title: '加工单价', defaultWidth: 100 },
-  { key: 'processing_output_value', title: '加工产值', defaultWidth: 100 },
+  { key: 'processing_output_value', title: '加工产值（万美金）', defaultWidth: 100 },
   { key: 'sales_price', title: '销售单价', defaultWidth: 100 },
-  { key: 'sales_output_value', title: '销售产值', defaultWidth: 100 },
+  { key: 'sales_output_value', title: '销售产值（万元）', defaultWidth: 100 },
   { key: 'required_days', title: '所需天数', defaultWidth: 80 },
   { key: 'is_outsourced', title: '是否外发', defaultWidth: 80 },
   { key: 'group_name', title: '排入组别', defaultWidth: 90 },
@@ -44,7 +44,8 @@ export const SCHEDULING_COLUMNS: ColumnPrefItem[] = [
   { key: 'fabric_readiness', title: '面辅料进度', defaultWidth: 200 },
   { key: 'online_time', title: '上线时间', defaultWidth: 120 },
   { key: 'offline_time', title: '下线时间', defaultWidth: 120 },
-  { key: 'days', title: '天数', defaultWidth: 70 },
+  { key: 'required_days', title: '所需天数', defaultWidth: 80 },
+  { key: 'holiday_days', title: '假期天数', defaultWidth: 80 },
   { key: 'scheduled_output', title: '排入数量', defaultWidth: 90 },
   { key: 'avg_daily_output', title: '日均产量', defaultWidth: 90 },
   { key: 'scheduling_remarks', title: '排单备注', defaultWidth: 140 },
@@ -67,11 +68,31 @@ export function normalizeViewColumnPreferences(
   return normalizeColumnPreferencesForDefs(raw, defs);
 }
 
+function migrateDaysToRequiredDays(raw: Partial<ColumnPreferences> | null): Partial<ColumnPreferences> | null {
+  if (!raw) return raw;
+  const order = raw.order?.map((k) => (k === 'days' ? 'required_days' : k));
+  const visible = raw.visible ? { ...raw.visible } : undefined;
+  if (visible && 'days' in visible) {
+    visible.required_days = visible.days;
+    delete visible.days;
+  }
+  const widths = raw.widths ? { ...raw.widths } : undefined;
+  if (widths && widths.days != null) {
+    widths.required_days = widths.days;
+    delete widths.days;
+  }
+  return { ...raw, order, visible, widths };
+}
+
 export function loadViewColumnPreferences(storageKey: string, defs: ColumnPrefItem[]): ColumnPreferences {
   try {
     const saved = localStorage.getItem(storageKey);
     if (!saved) return normalizeViewColumnPreferences(null, defs);
-    return normalizeViewColumnPreferences(JSON.parse(saved) as Partial<ColumnPreferences>, defs);
+    let parsed = JSON.parse(saved) as Partial<ColumnPreferences>;
+    if (storageKey === SCHEDULING_STORAGE_KEY || storageKey === SCHEDULING_SESSION_STORAGE_KEY) {
+      parsed = migrateDaysToRequiredDays(parsed) ?? parsed;
+    }
+    return normalizeViewColumnPreferences(parsed, defs);
   } catch {
     return normalizeViewColumnPreferences(null, defs);
   }
@@ -83,6 +104,23 @@ export function saveViewColumnPreferences(storageKey: string, prefs: ColumnPrefe
 
 export const EARLY_WARNING_STORAGE_KEY = 'scheduling-early-warning-columns';
 export const SCHEDULING_STORAGE_KEY = 'scheduling-scheduling-columns';
+export const CLOSING_STORAGE_KEY = 'scheduling-closing-columns';
+
+/** 关账视图：预警全部字段 + 订单状态 */
+export const CLOSING_COLUMNS: ColumnPrefItem[] = (() => {
+  const cols: ColumnPrefItem[] = [];
+  for (const col of EARLY_WARNING_COLUMNS) {
+    cols.push(col);
+    if (col.key === 'closing_month') {
+      cols.push({ key: 'order_status', title: '订单状态', defaultWidth: 96 });
+    }
+  }
+  return cols;
+})();
+
+export const CLOSING_DEFAULT_WIDTHS = Object.fromEntries(
+  CLOSING_COLUMNS.map((c) => [c.key, c.defaultWidth]),
+) as Record<string, number>;
 
 /** 排单模式（开始排单）左侧主视图：可单独配置显示列 */
 export const SCHEDULING_SESSION_COLUMNS: ColumnPrefItem[] = [
@@ -96,7 +134,8 @@ export const SCHEDULING_SESSION_COLUMNS: ColumnPrefItem[] = [
   { key: 'fabric_readiness', title: '面辅料进度', defaultWidth: 200 },
   { key: 'online_time', title: '上线时间', defaultWidth: 120 },
   { key: 'offline_time', title: '下线时间', defaultWidth: 120 },
-  { key: 'days', title: '天数', defaultWidth: 70 },
+  { key: 'required_days', title: '所需天数', defaultWidth: 80 },
+  { key: 'holiday_days', title: '假期天数', defaultWidth: 80 },
   { key: 'scheduled_output', title: '排入数量', defaultWidth: 90 },
   { key: 'avg_daily_output', title: '日均产量', defaultWidth: 90 },
   { key: 'scheduling_remarks', title: '排单备注', defaultWidth: 140 },

@@ -1,25 +1,5 @@
-/** 权限配置 - 目前所有角色全权限，后续只需修改此配置 */
-export interface FieldPermissionConfig {
-  visible: boolean;
-  editable: boolean;
-}
-
-type RolePermissions = Record<string, Record<string, FieldPermissionConfig>>;
-
-const DEFAULT_PERMISSION: FieldPermissionConfig = {
-  visible: true,
-  editable: true,
-};
-
-/** 当前默认角色 */
-const CURRENT_ROLE = 'admin';
-
-/** 权限配置表 - 按角色和 field_code 配置 */
-const PERMISSIONS: RolePermissions = {
-  admin: {},
-  sales: {},
-  viewer: {},
-};
+/** 字段权限控制 — 读取 AuthContext 中的 fieldPermissions */
+import { useAuth } from '@/contexts/AuthContext';
 
 interface FieldPermissionProps {
   fieldCode: string;
@@ -28,36 +8,28 @@ interface FieldPermissionProps {
   fallback?: React.ReactNode;
 }
 
-/**
- * 字段权限控制组件
- * 传入 field_code，根据角色权限配置控制显示/编辑
- */
 export function FieldPermission({
   fieldCode,
   children,
   mode = 'edit',
   fallback = null,
 }: FieldPermissionProps) {
-  const rolePerms = PERMISSIONS[CURRENT_ROLE] || {};
-  const perm = rolePerms[fieldCode] || DEFAULT_PERMISSION;
+  const { user, isFieldVisible, isFieldEditable } = useAuth();
 
-  if (!perm.visible) {
+  if (!user) return <>{fallback}</>;
+
+  if (!isFieldVisible(fieldCode)) {
     return <>{fallback}</>;
   }
 
-  if (mode === 'edit' && !perm.editable) {
+  if (mode === 'edit' && !isFieldEditable(fieldCode)) {
     return <>{fallback ?? children}</>;
   }
 
   return <>{children}</>;
 }
 
-export function isFieldEditable(fieldCode: string): boolean {
-  const rolePerms = PERMISSIONS[CURRENT_ROLE] || {};
-  return (rolePerms[fieldCode] || DEFAULT_PERMISSION).editable;
-}
-
-export function isFieldVisible(fieldCode: string): boolean {
-  const rolePerms = PERMISSIONS[CURRENT_ROLE] || {};
-  return (rolePerms[fieldCode] || DEFAULT_PERMISSION).visible;
+export function useFieldPermission() {
+  const { isFieldVisible, isFieldEditable, fieldPermissions } = useAuth();
+  return { isFieldVisible, isFieldEditable, fieldPermissions };
 }

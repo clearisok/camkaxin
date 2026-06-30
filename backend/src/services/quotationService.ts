@@ -8,6 +8,7 @@ import {
   type FabricInput,
   type AccessoryInput,
 } from '../utils/calculation.js';
+import { todayYmdBeijing, toYmdBeijing } from '../utils/beijingTime.js';
 import {
   nextQuotationNo,
   nextItemNo,
@@ -277,7 +278,9 @@ export async function createQuotation(data: Record<string, unknown>) {
     const exchangeRate = data.exchange_rate
       ? Number(data.exchange_rate)
       : await getExchangeRate();
-    const quoteDate = data.quote_date ? new Date(data.quote_date as string) : new Date();
+    const quoteDateYmd = data.quote_date
+      ? (toYmdBeijing(data.quote_date as string) ?? todayYmdBeijing())
+      : todayYmdBeijing();
     const fabricDeliveryDate = data.fabric_delivery_date
       ? (data.fabric_delivery_date as string)
       : null;
@@ -305,7 +308,7 @@ export async function createQuotation(data: Record<string, unknown>) {
       [
         quotationNo, data.brand_id || null, agentName,
         data.currency || 'RMB', Math.round(exchangeRate * 100) / 100,
-        quoteDate.toISOString().split('T')[0],
+        quoteDateYmd,
         fabricDeliveryDate,
         garmentDeliveryDate,
         parseOptionalPrice(data.target_labor_price),

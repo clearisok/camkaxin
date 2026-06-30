@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 const TAB_ITEMS = [
   { key: 'early_warning', label: '预警视图', hint: '未排单与交期预警' },
   { key: 'scheduling', label: '排单视图', hint: '按组别排产' },
-  { key: 'closing', label: '关账视图', hint: '月度产值汇总' },
+  { key: 'closing', label: '关账视图', hint: '关账锁定与产值汇总' },
 ];
 
 export const SCHEDULING_TAB_DEFAULT = 'early_warning';

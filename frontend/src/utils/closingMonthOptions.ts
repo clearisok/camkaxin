@@ -7,6 +7,12 @@ export const CLOSING_MONTH_SELECT_OPTIONS = CLOSING_MONTH_OPTIONS.map((m) => ({
   label: m,
 }));
 
+export const closingMonthYears = [...new Set(CLOSING_MONTH_OPTIONS.map((m) => m.slice(0, 4)))].sort();
+
+export function monthsOfYear(year: string): string[] {
+  return CLOSING_MONTH_OPTIONS.filter((m) => m.startsWith(`${year}-`));
+}
+
 const DROPDOWN_CLASS = 'closing-month-select-dropdown';
 const OPTION_HEIGHT = 32;
 

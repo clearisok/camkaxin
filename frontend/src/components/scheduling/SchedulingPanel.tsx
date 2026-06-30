@@ -2,9 +2,11 @@ import { useMemo, useState } from 'react';
 
 import {
 
-  Button, InputNumber, Select, Switch, Input, Space, message, Card, Empty, Spin,
+  Button, InputNumber, Select, Switch, Input, Space, message, Card, Empty, Spin, DatePicker,
 
 } from 'antd';
+
+import dayjs from 'dayjs';
 
 import { scheduleStyle } from '@/api/styles';
 
@@ -31,6 +33,8 @@ interface Draft {
   outsourced_factory?: string;
 
   outsourced_price?: number;
+
+  online_time?: string;
 
   scheduling_remarks?: string;
 
@@ -245,21 +249,13 @@ export default function SchedulingPanel({ data, loading, onScheduled }: Scheduli
     if (draft.is_outsourced) {
 
       if (!draft.outsourced_factory?.trim()) {
-
         message.warning('请填写外发工厂');
-
         return;
-
       }
-
-      if (draft.outsourced_price == null || draft.outsourced_price < 0) {
-
-        message.warning('请填写外发单价');
-
+      if (!draft.online_time) {
+        message.warning('请填写外发上线日期');
         return;
-
       }
-
     } else if (!draft.group_name) {
 
       message.warning('请选择排入组别');
@@ -286,7 +282,11 @@ export default function SchedulingPanel({ data, loading, onScheduled }: Scheduli
 
         outsourced_factory: draft.is_outsourced ? draft.outsourced_factory?.trim() : null,
 
-        outsourced_price: draft.is_outsourced ? draft.outsourced_price : null,
+        outsourced_price: draft.is_outsourced ? (draft.outsourced_price ?? null) : null,
+
+        online_time: draft.is_outsourced ? draft.online_time ?? null : null,
+
+        offline_time: null,
 
         scheduling_remarks: draft.scheduling_remarks?.trim() || null,
 
@@ -382,168 +382,98 @@ export default function SchedulingPanel({ data, loading, onScheduled }: Scheduli
 
 
 
-                  <div
-
-                    className={`scheduling-panel-form-row${
-
-                      draft.is_outsourced ? ' is-outsource' : ''
-
-                    }`}
-
-                  >
-
-                    <label className="scheduling-panel-field scheduling-panel-field--qty">
-
-                      <span className="required">排入数量</span>
-
-                      <InputNumber
-
-                        size="small"
-
-                        className="scheduling-panel-input-qty"
-
-                        min={1}
-
-                        precision={0}
-
-                        placeholder="必填"
-
-                        value={draft.schedule_qty}
-
-                        onChange={(v) => patchDraft(record.id, record, {
-
-                          schedule_qty: v != null ? Math.round(v) : undefined,
-
-                        })}
-
-                      />
-
-                    </label>
-
-                    <label className="scheduling-panel-field scheduling-panel-field--days">
-
-                      <span className="required">所需天数</span>
-
-                      <InputNumber
-
-                        size="small"
-
-                        className="scheduling-panel-input-days"
-
-                        min={1}
-
-                        precision={0}
-
-                        placeholder="必填"
-
-                        value={draft.required_days}
-
-                        onChange={(v) => patchDraft(record.id, record, { required_days: v ?? undefined })}
-
-                      />
-
-                    </label>
-
-                    <label className="scheduling-panel-field scheduling-panel-field-switch">
-
-                      <span>是否外发</span>
-
-                      <Switch
-
-                        checked={draft.is_outsourced}
-
-                        checkedChildren="是"
-
-                        unCheckedChildren="否"
-
-                        onChange={(checked) => patchDraft(record.id, record, {
-
-                          is_outsourced: checked,
-
-                          group_name: checked ? undefined : draft.group_name,
-
-                          outsourced_factory: checked ? draft.outsourced_factory : undefined,
-
-                          outsourced_price: checked ? draft.outsourced_price : undefined,
-
-                        })}
-
-                      />
-
-                    </label>
-
-                    {draft.is_outsourced ? (
-
-                      <>
-
-                        <label className="scheduling-panel-field">
-
-                          <span className="required">外发工厂</span>
-
-                          <Input
-
-                            placeholder="外发工厂"
-
-                            value={draft.outsourced_factory}
-
-                            onChange={(e) => patchDraft(record.id, record, { outsourced_factory: e.target.value })}
-
-                          />
-
-                        </label>
-
-                        <label className="scheduling-panel-field">
-
-                          <span className="required">外发单价</span>
-
-                          <InputNumber
-
-                            className="w-full"
-
-                            min={0}
-
-                            step={0.01}
-
-                            precision={2}
-
-                            placeholder="外发单价"
-
-                            value={draft.outsourced_price}
-
-                            onChange={(v) => patchDraft(record.id, record, { outsourced_price: v ?? undefined })}
-
-                          />
-
-                        </label>
-
-                      </>
-
-                    ) : (
-
-                      <label className="scheduling-panel-field scheduling-panel-field--group">
-
-                        <span className="required">排入组别</span>
-
-                        <Select
-
+                  <div className="scheduling-panel-form">
+                    <div className={`scheduling-panel-form-row scheduling-panel-form-row--primary${draft.is_outsourced ? ' is-outsource-primary' : ''}`}>
+                      <label className="scheduling-panel-field scheduling-panel-field--qty">
+                        <span className="required">排入数量</span>
+                        <InputNumber
                           size="small"
-
-                          className="scheduling-panel-select-group"
-
-                          placeholder="组别"
-
-                          options={GROUP_OPTIONS}
-
-                          value={draft.group_name}
-
-                          onChange={(v) => patchDraft(record.id, record, { group_name: v })}
-
+                          className="scheduling-panel-input-qty"
+                          min={1}
+                          precision={0}
+                          placeholder="必填"
+                          value={draft.schedule_qty}
+                          onChange={(v) => patchDraft(record.id, record, {
+                            schedule_qty: v != null ? Math.round(v) : undefined,
+                          })}
                         />
-
                       </label>
-
+                      <label className="scheduling-panel-field scheduling-panel-field--days">
+                        <span className="required">所需天数</span>
+                        <InputNumber
+                          size="small"
+                          className="scheduling-panel-input-days"
+                          min={1}
+                          precision={0}
+                          placeholder="必填"
+                          value={draft.required_days}
+                          onChange={(v) => patchDraft(record.id, record, { required_days: v ?? undefined })}
+                        />
+                      </label>
+                      <label className="scheduling-panel-field scheduling-panel-field-switch">
+                        <span>是否外发</span>
+                        <Switch
+                          checked={draft.is_outsourced}
+                          checkedChildren="是"
+                          unCheckedChildren="否"
+                          onChange={(checked) => patchDraft(record.id, record, {
+                            is_outsourced: checked,
+                            group_name: checked ? undefined : draft.group_name,
+                            outsourced_factory: checked ? draft.outsourced_factory : undefined,
+                            outsourced_price: checked ? draft.outsourced_price : undefined,
+                          })}
+                        />
+                      </label>
+                      {!draft.is_outsourced && (
+                        <label className="scheduling-panel-field scheduling-panel-field--group">
+                          <span className="required">排入组别</span>
+                          <Select
+                            size="small"
+                            className="scheduling-panel-select-group"
+                            placeholder="组别"
+                            options={GROUP_OPTIONS}
+                            value={draft.group_name}
+                            onChange={(v) => patchDraft(record.id, record, { group_name: v })}
+                          />
+                        </label>
+                      )}
+                    </div>
+                    {draft.is_outsourced && (
+                      <div className="scheduling-panel-form-row scheduling-panel-form-row--outsource">
+                        <label className="scheduling-panel-field scheduling-panel-field--factory">
+                          <span className="required">外发工厂</span>
+                          <Input
+                            size="small"
+                            placeholder="外发工厂"
+                            value={draft.outsourced_factory}
+                            onChange={(e) => patchDraft(record.id, record, { outsourced_factory: e.target.value })}
+                          />
+                        </label>
+                        <label className="scheduling-panel-field scheduling-panel-field--price">
+                          <span>外发单价</span>
+                          <InputNumber
+                            size="small"
+                            className="scheduling-panel-input-full"
+                            min={0}
+                            step={0.01}
+                            precision={2}
+                            placeholder="单价"
+                            value={draft.outsourced_price}
+                            onChange={(v) => patchDraft(record.id, record, { outsourced_price: v ?? undefined })}
+                          />
+                        </label>
+                        <label className="scheduling-panel-field scheduling-panel-field--date">
+                          <span className="required">外发上线</span>
+                          <DatePicker
+                            size="small"
+                            className="scheduling-panel-input-full"
+                            placeholder="选择日期"
+                            value={draft.online_time ? dayjs(draft.online_time) : undefined}
+                            onChange={(v) => patchDraft(record.id, record, { online_time: v?.format('YYYY-MM-DD') })}
+                          />
+                        </label>
+                      </div>
                     )}
-
                   </div>
 
 

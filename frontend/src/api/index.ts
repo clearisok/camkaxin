@@ -1,29 +1,48 @@
 import axios from 'axios';
+import { getStoredToken, setStoredToken } from '@/api/tokenStorage';
 
 const api = axios.create({
   baseURL: '/api',
   timeout: 30000,
+  withCredentials: true,
+});
+
+api.interceptors.request.use((config) => {
+  const token = getStoredToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    const e = err as Error & { code?: string; response?: { status?: number; data?: { error?: string } }; config?: { url?: string } };
-    // #region agent log
-    fetch('http://127.0.0.1:7866/ingest/949bb3a4-1e98-433b-8c2f-5ab46646876f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6f51ef'},body:JSON.stringify({sessionId:'6f51ef',location:'api/index.ts:interceptor',message:'API request failed',data:{message:e.message,name:e.name,code:(err as {code?:string}).code,status:err.response?.status,responseError:err.response?.data?.error,responseData:err.response?.data,url:err.config?.url,method:err.config?.method},timestamp:Date.now(),hypothesisId:'H-D',runId:'pre-fix'})}).catch(()=>{});
-    // #endregion
+    const e = err as Error & { code?: string; response?: { status?: number; data?: unknown }; config?: { url?: string; method?: string } };
+    const status = e.response?.status;
+    const responseData = e.response?.data;
+    const url = e.config?.url;
+
+    if (status === 401 && url !== '/auth/login') {
+      setStoredToken(null);
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+      }
+    }
+
     if (!err.response && (e.code === 'ERR_NETWORK' || e.message === 'Network Error')) {
       return Promise.reject(new Error('无法连接后端服务，请确认已运行 npm run dev'));
     }
-    const raw = err.response?.data?.error
-      || (err.response?.status === 500 && !err.response?.data?.error
-        ? '后端服务异常（可能已崩溃），请确认 PostgreSQL 已启动并重启 npm run dev'
+    const bodyError = (responseData as { error?: string } | undefined)?.error;
+    const raw = bodyError
+      || (status === 500 && !bodyError
+        ? `后端服务异常（HTTP 500${url ? ` · ${url}` : ''}），请重启 backend 并确认 PostgreSQL 已启动`
         : undefined)
-      || err.message
+      || e.message
       || '请求失败';
     const message = typeof raw === 'string' ? raw.replace(/^Error:\s*/i, '') : String(raw);
     return Promise.reject(new Error(message));
-  }
+  },
 );
 
 export default api;
@@ -67,6 +86,48 @@ export const createAccessory = (data: Record<string, unknown>) =>
 export const updateAccessory = (id: number, data: Record<string, unknown>) =>
   api.put(`/accessories/${id}`, data).then((r) => r.data);
 export const deleteAccessory = (id: number) => api.delete(`/accessories/${id}`).then((r) => r.data);
+
+// Calendar exceptions (holiday / workday)
+export type CalendarDayType = 'holiday' | 'workday';
+export type CalendarExceptionSource = 'manual' | 'cambodia';
+
+export interface CalendarException {
+  id: number;
+  start_date: string;
+  end_date: string;
+  day_type: CalendarDayType;
+  name: string | null;
+  source: CalendarExceptionSource;
+  created_at: string;
+  updated_at: string;
+  day_count?: number;
+  period_label?: string;
+  weekday_start?: string;
+  weekday_end?: string;
+  default_workday?: boolean;
+  effective_workday?: boolean;
+}
+
+export const getCalendarRules = () =>
+  api.get('/calendar-exceptions/rules').then((r) => r.data);
+export const getCalendarExceptions = (year?: number, effective = false) =>
+  api.get('/calendar-exceptions', { params: { year, effective: effective ? '1' : undefined } }).then((r) => r.data);
+export const createCalendarException = (data: {
+  start_date: string;
+  end_date: string;
+  day_type: CalendarDayType;
+  name?: string;
+}) => api.post('/calendar-exceptions', data).then((r) => r.data);
+export const updateCalendarException = (id: number, data: {
+  start_date?: string;
+  end_date?: string;
+  day_type?: CalendarDayType;
+  name?: string;
+}) => api.put(`/calendar-exceptions/${id}`, data).then((r) => r.data);
+export const deleteCalendarException = (id: number) =>
+  api.delete(`/calendar-exceptions/${id}`).then((r) => r.data);
+export const syncCambodiaHolidays = (years?: number[]) =>
+  api.post('/calendar-exceptions/sync-cambodia', { years }).then((r) => r.data);
 
 // Settings
 export const getSettings = () => api.get('/settings').then((r) => r.data);

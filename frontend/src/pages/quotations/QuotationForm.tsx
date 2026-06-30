@@ -5,6 +5,7 @@ import {
 } from 'antd';
 import { SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { beijingNow } from '@/utils/beijingTime';
 import {
   getQuotation, createQuotation, updateQuotation,
   getBrands, getFabrics, getAccessories, getSettings,
@@ -70,7 +71,7 @@ export default function QuotationForm() {
     currency: 'RMB',
     exchange_rate: 6.8,
     profit_margin: 5,
-    quote_date: dayjs().format('YYYY-MM-DD'),
+    quote_date: beijingNow().format('YYYY-MM-DD'),
     status: 'draft',
     items: [createEmptyItem()],
   });
@@ -328,7 +329,7 @@ export default function QuotationForm() {
                 {readOnly ? <span className="quotation-basic-value">{form.quote_date}</span> : (
                   <DatePicker
                     className="w-full"
-                    value={form.quote_date ? dayjs(form.quote_date) : dayjs()}
+                    value={form.quote_date ? dayjs(form.quote_date) : beijingNow()}
                     onChange={(d) => {
                       if (d) {
                         setForm((prev) => ({ ...prev, quote_date: d.format('YYYY-MM-DD') }));

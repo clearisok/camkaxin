@@ -3,6 +3,8 @@
  * 所有金额保留两位小数，损耗为整数百分比
  */
 
+import { formatYmdBeijing } from './beijingTime.js';
+
 export type FabricUnit = 'meter' | 'kg';
 
 export interface FabricInput {
@@ -164,11 +166,9 @@ export function calcQuotationSummary(input: QuotationCalcInput) {
 
 /** 生成报价单号 Q+YYYYMMDD+3位序列 */
 export function formatQuotationNo(date: Date, sequence: number): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
+  const compact = formatYmdBeijing(date).replace(/-/g, '');
   const seq = String(sequence).padStart(3, '0');
-  return `Q${y}${m}${d}${seq}`;
+  return `Q${compact}${seq}`;
 }
 
 /** 生成明细行号 MX+6位流水 */

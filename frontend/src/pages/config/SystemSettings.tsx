@@ -3,6 +3,7 @@ import { Card, InputNumber, Button, Upload, Table, message, Popconfirm, Divider 
 import { UploadOutlined, DeleteOutlined } from '@ant-design/icons';
 import { getSettings, updateExchangeRate, getTemplates, uploadTemplate, deleteTemplate } from '@/api';
 import PageHeader from '@/components/PageHeader';
+import { formatDateTimeBeijing } from '@/utils/beijingTime';
 
 export default function SystemSettings() {
   const [rate, setRate] = useState(6.8);
@@ -52,7 +53,7 @@ export default function SystemSettings() {
       render: (v: boolean) => v ? '是' : '否',
     },
     { title: '上传时间', dataIndex: 'created_at', width: 180,
-      render: (v: string) => new Date(v).toLocaleString('zh-CN'),
+      render: (v: string) => formatDateTimeBeijing(v),
     },
     {
       title: '操作', width: 100,

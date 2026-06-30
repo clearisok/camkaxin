@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
+import { todayYmdCompactBeijing } from '../utils/beijingTime.js';
 
 const IMAGE_SIZE = 150;
 
@@ -314,7 +315,7 @@ export function buildQuotationExportFilename(
   const codes = items.map((i) => i.product_code).filter(Boolean) as string[];
   let codePart = codes[0] || '无款号';
   if (codes.length > 1) codePart = `${codePart}等`;
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const date = todayYmdCompactBeijing();
   return `${brand}_${codePart}_${date}.xlsx`;
 }
 

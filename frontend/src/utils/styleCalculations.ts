@@ -1,12 +1,14 @@
 import type { StyleRecord } from '@/types/style';
 import { isAwaitingSchedule } from '@/utils/schedulingRules';
+import { formatDateBeijing, toYmdBeijingClient, STYLE_DATE_FIELD_KEYS } from '@/utils/beijingTime';
 
 export function calcDays(online?: string | null, offline?: string | null): number | null {
-  if (!online || !offline) return null;
-  const a = new Date(online);
-  const b = new Date(offline);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
-  return Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24));
+  const a = toYmdBeijingClient(online);
+  const b = toYmdBeijingClient(offline);
+  if (!a || !b) return null;
+  const msA = new Date(`${a}T12:00:00+08:00`).getTime();
+  const msB = new Date(`${b}T12:00:00+08:00`).getTime();
+  return Math.round((msB - msA) / (1000 * 60 * 60 * 24));
 }
 
 export function enrichStyleClient(row: StyleRecord): StyleRecord {
@@ -34,8 +36,8 @@ export function isUnscheduled(row: StyleRecord): boolean {
 
 /** 下线日晚于要求出货日 */
 export function isOfflineAfterShipping(row: StyleRecord): boolean {
-  const ship = row.required_shipping_date ? String(row.required_shipping_date).slice(0, 10) : null;
-  const offline = row.offline_time ? String(row.offline_time).slice(0, 10) : null;
+  const ship = toYmdBeijingClient(row.required_shipping_date);
+  const offline = toYmdBeijingClient(row.offline_time);
   if (!ship || !offline) return false;
   return offline > ship;
 }
@@ -45,7 +47,9 @@ export function formatMoney(v?: number | null): string {
   return v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** 北京日历日 YYYY-MM-DD */
 export function formatDate(v?: string | null): string {
-  if (!v) return '—';
-  return String(v).slice(0, 10);
+  return formatDateBeijing(v);
 }
+
+export { STYLE_DATE_FIELD_KEYS, toYmdBeijingClient };
