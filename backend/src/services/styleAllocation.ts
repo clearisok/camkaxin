@@ -81,7 +81,7 @@ export const CHILD_COPY_FIELDS = [
   'salesperson', 'brand', 'style_number', 'style_name', 'closing_month', 'style_image',
   'fabric_structure', 'fabric_readiness', 'accessories_readiness', 'sample_progress',
   'first_bed_time', 'po_number', 'printing_embroidery', 'order_follower',
-  'required_shipping_date', 'processing_unit_price', 'sales_price', 'quantity',
+  'required_shipping_date', 'processing_unit_price', 'sales_price', 'quantity', 'order_type',
 ] as const;
 
 export function buildChildRowFromParent(

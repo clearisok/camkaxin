@@ -7,17 +7,29 @@ interface StyleImageUploadProps {
   onChange: (path?: string) => void;
   readOnly?: boolean;
   compact?: boolean;
+  /** 摘要区：96px 方图，只读或极简上传 */
+  summary?: boolean;
 }
 
-export default function StyleImageUpload({ value, onChange, readOnly, compact }: StyleImageUploadProps) {
-  const previewVariant = compact ? 'thumb' : 'large';
-  const previewSize = compact ? 56 : undefined;
+export default function StyleImageUpload({
+  value,
+  onChange,
+  readOnly,
+  compact,
+  summary,
+}: StyleImageUploadProps) {
+  const previewVariant = summary ? 'thumb' : compact ? 'thumb' : 'large';
+  const previewSize = summary ? 96 : compact ? 56 : undefined;
 
-  if (readOnly) {
-    return value ? (
-      <AttachmentPreviewList paths={[value]} variant={previewVariant} size={previewSize} />
-    ) : (
-      <span className="text-gray-400">—</span>
+  if (readOnly || summary) {
+    return (
+      <div className={`style-image-summary-box${value ? ' has-image' : ''}`}>
+        {value ? (
+          <AttachmentPreviewList paths={[value]} variant={previewVariant} size={previewSize} />
+        ) : (
+          <span className="style-image-summary-placeholder">暂无图片</span>
+        )}
+      </div>
     );
   }
 

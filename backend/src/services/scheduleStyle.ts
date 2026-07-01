@@ -12,6 +12,7 @@ import {
   buildChildRowFromParent,
   sumAllocatedQuantity,
 } from './styleAllocation.js';
+import { acknowledgeCancelForParent } from './styleCancelService.js';
 import {
   calcAppendToGroupTimeline,
   lastOfflineInProductionGroup,
@@ -161,6 +162,8 @@ export async function scheduleStyle(
       'INSERT INTO style_histories (style_id, changed_data, changed_by) VALUES ($1, $2, $3)',
       [insertRes.rows[0].id, JSON.stringify(diff), changedBy],
     );
+
+    await acknowledgeCancelForParent(id, client);
 
     await client.query('COMMIT');
     return enrichStyle(insertRes.rows[0] as StyleRow);

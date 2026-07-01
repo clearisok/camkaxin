@@ -1,9 +1,7 @@
 import { query } from '../config/database.js';
-import {
-  calcProcessingOutputValue,
-  calcSalesOutputValue,
-  type StyleRow,
-} from '../utils/styleCalculations.js';
+import { enrichStyle, type StyleRow } from '../utils/styleCalculations.js';
+import { getClosingSettings } from './settingsService.js';
+import { enrichClosingValues, isProcessingOrder } from '../utils/styleClosingValue.js';
 
 export interface ClosingMonthLockRow {
   closing_month: string;
@@ -28,11 +26,21 @@ async function sumMonthOutput(closingMonth: string) {
      WHERE parent_style_id IS NULL AND closing_month = $1`,
     [closingMonth],
   );
+  const closingSettings = await getClosingSettings();
   let totalSales = 0;
   let totalProcessing = 0;
-  for (const row of res.rows as StyleRow[]) {
-    totalSales += calcSalesOutputValue(row.quantity, row.sales_price) ?? 0;
-    totalProcessing += calcProcessingOutputValue(row.quantity, row.processing_unit_price) ?? 0;
+  for (const raw of res.rows) {
+    const base = enrichStyle(raw as StyleRow);
+    const row = enrichClosingValues(base, {
+      exchangeRate: closingSettings.exchange_rate,
+      closingIncludeProcessing: closingSettings.closing_include_processing,
+    });
+    if (isProcessingOrder(row)) {
+      totalSales += row.closing_processing_value ?? 0;
+    } else {
+      totalSales += row.sales_output_value ?? 0;
+    }
+    totalProcessing += row.processing_output_value ?? 0;
   }
   return {
     style_count: res.rows.length,

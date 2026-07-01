@@ -12,6 +12,13 @@ export const PRODUCTION_GROUP_IDS = [
   '16',
 ];
 
+/** 排单 Excel 导出区位顺序（不含下线区、不含 14 组） */
+export const SCHEDULING_EXPORT_ZONE_ORDER = [
+  'wait',
+  ...PRODUCTION_GROUP_IDS.map((g) => `group-${g}`),
+  'outsource',
+];
+
 const VALID_ZONES = new Set<SchedulingZone>(['wait', 'group', 'outsource', 'offline']);
 
 export function isProductionGroup(name?: string | null): boolean {
@@ -28,6 +35,36 @@ export function inferZoneFromRow(row: {
   if (g === '外发') return 'outsource';
   if (g && isProductionGroup(g)) return 'group';
   return 'wait';
+}
+
+export function collapseKeyForRow(row: {
+  scheduling_zone?: string | null;
+  group_name?: string | null;
+}): string {
+  const zone = inferZoneFromRow(row);
+  if (zone === 'group' && row.group_name) return `group-${String(row.group_name).trim()}`;
+  return zone;
+}
+
+/** 排单导出虚拟列：区位显示名 */
+export function schedulingZoneLabel(row: {
+  scheduling_zone?: string | null;
+  group_name?: string | null;
+}): string {
+  const key = collapseKeyForRow(row);
+  if (key === 'wait') return '待排单';
+  if (key === 'outsource') return '外发订单';
+  if (key === 'offline') return '下线区';
+  if (key.startsWith('group-')) return `第 ${key.slice(6)} 生产组`;
+  return key;
+}
+
+export function zoneKeyLabel(key: string): string {
+  if (key === 'wait') return '待排单';
+  if (key === 'outsource') return '外发订单';
+  if (key === 'offline') return '下线区';
+  if (key.startsWith('group-')) return `第 ${key.slice(6)} 生产组`;
+  return key;
 }
 
 export function normalizeZonePatch(patch: Record<string, unknown>): Record<string, unknown> {

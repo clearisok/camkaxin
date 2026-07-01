@@ -15,6 +15,17 @@ const ROUTE_RULES: RouteRule[] = [
   { methods: ['POST'], test: (p) => p.startsWith('/quotations') && p.includes('export'), permission: 'quotations.export' },
 
   { methods: ['GET'], test: (p) => p.startsWith('/styles'), permission: 'scheduling.view' },
+  { methods: ['GET'], test: (p) => p === '/styles/export-templates', permission: 'scheduling.view' },
+  {
+    methods: ['POST'],
+    test: (p) => p === '/styles/export/early-warning' || p === '/api/styles/export/early-warning',
+    permission: 'scheduling.export',
+  },
+  {
+    methods: ['POST'],
+    test: (p) => p === '/styles/export/scheduling' || p === '/api/styles/export/scheduling',
+    permission: 'scheduling.export',
+  },
   { methods: ['POST'], test: (p) => p.includes('/sandbox-preview'), permission: 'scheduling.sandbox' },
   { methods: ['POST'], test: (p) => p.endsWith('/schedule'), permission: 'scheduling.schedule' },
   { methods: ['POST'], test: (p) => p.endsWith('/move'), permission: 'scheduling.move' },

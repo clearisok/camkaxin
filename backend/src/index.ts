@@ -28,6 +28,7 @@ import { seedDefaultFieldPermissions } from './services/fieldPermissionService.j
 import { ensureCalendarSchema } from './db/ensureCalendarSchema.js';
 import { ensureAuthSchema } from './db/ensureAuthSchema.js';
 import { ensureClosingLockSchema } from './db/ensureClosingLockSchema.js';
+import { ensureEarlyWarningExportTemplateSchema } from './db/ensureEarlyWarningExportTemplateSchema.js';
 
 dotenv.config();
 
@@ -110,6 +111,7 @@ async function start() {
     await ensureSchedulingSchema();
     await ensureCalendarSchema();
     await ensureClosingLockSchema();
+    await ensureEarlyWarningExportTemplateSchema();
     await seedDefaultRolesAndPermissions();
     await seedDefaultFieldPermissions();
   } catch (err) {

@@ -27,6 +27,7 @@ import {
 } from './schedulingTimeline.js';
 import { query } from '../config/database.js';
 import { agentDebugLog } from '../utils/agentDebugLog.js';
+import { acknowledgeCancelForParent } from './styleCancelService.js';
 
 export type MoveTarget = 'wait' | 'outsource' | 'offline' | `group:${string}`;
 
@@ -80,6 +81,12 @@ async function writeStylePatch(
     'INSERT INTO style_histories (style_id, changed_data, changed_by) VALUES ($1, $2, $3)',
     [id, JSON.stringify(diff), changedBy],
   );
+  const parentId = existing.parent_style_id != null
+    ? Number(existing.parent_style_id)
+    : id;
+  if (Number.isFinite(parentId)) {
+    await acknowledgeCancelForParent(parentId, client);
+  }
 }
 
 async function renumberGroupSortOrders(groupName: string, client: PoolClient) {

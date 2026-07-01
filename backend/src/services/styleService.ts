@@ -15,6 +15,9 @@ import {
   loadAllocatedMap,
 } from './styleAllocation.js';
 import { assertClosingMonthEditable } from './closingLockService.js';
+import { getClosingSettings } from './settingsService.js';
+import { enrichClosingValues, normalizeOrderType } from '../utils/styleClosingValue.js';
+import { enrichRowsWithCancelFlags, acknowledgeCancelForParent } from './styleCancelService.js';
 
 export interface StyleListQuery {
   view?: 'early_warning' | 'scheduling' | 'closing';
@@ -43,6 +46,7 @@ export const STYLE_FILTERABLE_FIELDS = new Set([
   'sample_progress', 'printing_embroidery', 'order_follower',
   'processing_unit_price', 'processing_output_value', 'sales_price', 'sales_output_value',
   'required_days', 'is_outsourced', 'group_name', 'outsourced_factory', 'outsourced_price',
+  'order_type', 'cancelled_quantity',
   'online_time', 'offline_time', 'first_bed_time', 'short_over_shipment',
   'overseas_merchandiser', 'scheduling_remarks', 'scheduled_output', 'avg_daily_output',
   'sort_order',
@@ -102,6 +106,7 @@ function normalizeValue(key: string, value: unknown): unknown {
     return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
   }
   if (key === 'is_outsourced') return Boolean(value);
+  if (key === 'order_type') return normalizeOrderType(value);
   if (key === 'sort_order' || key === 'required_days') {
     const n = Number(value);
     return Number.isFinite(n) ? Math.round(n) : null;
@@ -117,6 +122,9 @@ function pickUpdates(data: Record<string, unknown>): Record<string, unknown> {
   const updates: Record<string, unknown> = {};
   for (const key of EDITABLE_STYLE_FIELDS) {
     if (key in withZone) updates[key] = normalizeValue(key, withZone[key]);
+  }
+  if (normalizeOrderType(updates.order_type) === 'processing') {
+    updates.sales_price = null;
   }
   return updates;
 }
@@ -256,16 +264,24 @@ export async function listStyles(params: StyleListQuery) {
 
   const result = await query(`SELECT * FROM styles ${where} ${orderBy}`, values);
   const exceptions = params.view === 'scheduling' ? await loadAllExceptionsMap() : null;
+  const closingSettings = params.view === 'closing'
+    ? await getClosingSettings()
+    : null;
   const enrichRow = exceptions
     ? (row: StyleRow) => enrichStyleForScheduling(row, exceptions)
-    : (row: StyleRow) => enrichStyle(row);
-  const rows = result.rows.map((row) => enrichRow(row as StyleRow));
+    : closingSettings
+      ? (row: StyleRow) => enrichClosingValues(enrichStyle(row), {
+        exchangeRate: closingSettings.exchange_rate,
+        closingIncludeProcessing: closingSettings.closing_include_processing,
+      })
+      : (row: StyleRow) => enrichStyle(row);
+  let rows = result.rows.map((row) => enrichRow(row as StyleRow));
   const parentIds = rows
     .filter((row) => row.parent_style_id == null)
     .map((row) => Number(row.id))
     .filter((id) => Number.isFinite(id));
   const allocatedMap = await loadAllocatedMap(parentIds);
-  return rows.map((row) => {
+  rows = rows.map((row) => {
     if (row.parent_style_id != null) return row;
     const childAllocated = allocatedMap.get(Number(row.id)) ?? 0;
     const allocated = effectiveAllocatedQuantity(row, childAllocated);
@@ -275,6 +291,10 @@ export async function listStyles(params: StyleListQuery) {
       unscheduled_quantity: calcUnscheduledQuantity(row.quantity, allocated),
     };
   });
+  if (params.view === 'scheduling') {
+    rows = await enrichRowsWithCancelFlags(rows);
+  }
+  return rows;
 }
 
 /** 预警字段筛选：返回某字段的去重可选值 */
@@ -336,7 +356,7 @@ export async function getStyleById(id: number) {
 }
 
 export async function createStyle(data: Record<string, unknown>) {
-  const updates = pickUpdates({ scheduling_zone: 'wait', ...data });
+  const updates = pickUpdates({ scheduling_zone: 'wait', order_type: 'distribution', ...data });
   if (!updates.style_number) {
     throw new Error('款号必填');
   }
@@ -398,6 +418,15 @@ export async function updateStyle(
     'INSERT INTO style_histories (style_id, changed_data, changed_by) VALUES ($1, $2, $3)',
     [id, JSON.stringify(diff), changedBy]
   );
+
+  const isSchedulingRow = existing.parent_style_id != null
+    || inferZoneFromRow(existing as { scheduling_zone?: string; group_name?: string | null }) !== 'wait';
+  if (isSchedulingRow) {
+    const parentId = existing.parent_style_id != null
+      ? Number(existing.parent_style_id)
+      : id;
+    await acknowledgeCancelForParent(parentId);
+  }
 
   return getStyleById(id);
 }

@@ -35,6 +35,23 @@ import {
   lockClosingMonth,
   unlockClosingMonth,
 } from '../services/closingLockService.js';
+import {
+  buildEarlyWarningExportFilename,
+  exportEarlyWarningExcel,
+  type EarlyWarningExportMeta,
+} from '../services/earlyWarningExport.js';
+import {
+  listExportTemplates,
+  resolveExportColumns,
+  resolveTemplateForExport,
+  type ExportTemplateView,
+} from '../services/exportTemplateService.js';
+import {
+  buildSchedulingExportFilename,
+  exportSchedulingExcel,
+  type SchedulingExportMeta,
+} from '../services/schedulingExport.js';
+import { cancelStyleOrder } from '../services/styleCancelService.js';
 
 const router = Router();
 
@@ -154,6 +171,131 @@ router.get('/field-options', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/export-templates', async (req: Request, res: Response) => {
+  try {
+    const view = (req.query.view === 'scheduling' ? 'scheduling' : 'early_warning') as ExportTemplateView;
+    const data = await listExportTemplates(view);
+    res.json({ data });
+  } catch (err) {
+    res.status(400).json({ error: String(err) });
+  }
+});
+
+router.post('/export/scheduling', async (req: Request, res: Response) => {
+  try {
+    const { style_ids, column_keys, meta, template_id } = req.body as {
+      style_ids?: unknown;
+      column_keys?: unknown;
+      meta?: SchedulingExportMeta;
+      template_id?: number | null;
+    };
+
+    if (meta && (meta as { sandbox_mode?: boolean }).sandbox_mode) {
+      res.status(400).json({ error: '排单沙箱模式下不可导出，请先退出沙箱' });
+      return;
+    }
+
+    const ids = Array.isArray(style_ids)
+      ? style_ids
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+      : [];
+    if (!ids.length) {
+      res.status(400).json({ error: '没有可导出的款式' });
+      return;
+    }
+
+    const userKeys = Array.isArray(column_keys)
+      ? column_keys.filter(
+        (k): k is string => typeof k === 'string' && k.length > 0 && k !== 'action' && k !== 'row_edit' && k !== 'move_target',
+      )
+      : [];
+    if (!userKeys.length) {
+      res.status(400).json({ error: '请至少选择一个导出字段' });
+      return;
+    }
+
+    const template = await resolveTemplateForExport('scheduling', template_id);
+    const { keys, unconfigured } = resolveExportColumns(template?.config, userKeys);
+    if (!keys.length) {
+      res.status(400).json({ error: '请至少选择一个导出字段' });
+      return;
+    }
+
+    const exportMeta: SchedulingExportMeta = {
+      ...(meta ?? {}),
+      template_name: template?.name,
+    };
+    const buffer = await exportSchedulingExcel(ids, keys, exportMeta, template?.config ?? null);
+    const filename = buildSchedulingExportFilename();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    if (unconfigured.length > 0) {
+      res.setHeader('X-Export-Unconfigured-Fields', unconfigured.join(','));
+    }
+    res.send(buffer);
+  } catch (err) {
+    console.error('[export/scheduling]', err);
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ error: message });
+  }
+});
+
+router.post('/export/early-warning', async (req: Request, res: Response) => {
+  try {
+    const { style_ids, column_keys, meta, template_id } = req.body as {
+      style_ids?: unknown;
+      column_keys?: unknown;
+      meta?: EarlyWarningExportMeta;
+      template_id?: number | null;
+    };
+
+    const ids = Array.isArray(style_ids)
+      ? style_ids
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+      : [];
+    if (!ids.length) {
+      res.status(400).json({ error: '没有可导出的款式' });
+      return;
+    }
+
+    const userKeys = Array.isArray(column_keys)
+      ? column_keys.filter(
+        (k): k is string => typeof k === 'string' && k.length > 0 && k !== 'action' && k !== 'row_edit',
+      )
+      : [];
+    if (!userKeys.length) {
+      res.status(400).json({ error: '请至少选择一个导出字段' });
+      return;
+    }
+
+    const template = await resolveTemplateForExport('early_warning', template_id);
+    const { keys, unconfigured } = resolveExportColumns(template?.config, userKeys);
+    if (!keys.length) {
+      res.status(400).json({ error: '请至少选择一个导出字段' });
+      return;
+    }
+
+    const exportMeta: EarlyWarningExportMeta = {
+      ...(meta ?? {}),
+      template_name: template?.name,
+    };
+    const buffer = await exportEarlyWarningExcel(ids, keys, exportMeta, template?.config ?? null);
+    const filename = buildEarlyWarningExportFilename();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    if (unconfigured.length > 0) {
+      res.setHeader('X-Export-Unconfigured-Fields', unconfigured.join(','));
+    }
+    res.send(buffer);
+  } catch (err) {
+    console.error('[export/early-warning]', err);
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ error: message });
+  }
+});
+
 router.get('/', async (req: Request, res: Response) => {
   try {
     await seedStylesIfEmpty();
@@ -259,6 +401,26 @@ router.get('/:id', async (req: Request, res: Response) => {
     res.json({ data });
   } catch (err) {
     res.status(500).json({ error: String(err) });
+  }
+});
+
+router.post('/:id/cancel', async (req: Request, res: Response) => {
+  try {
+    const id = parseId(req.params.id);
+    const { cancel_qty, cancel_all, reason, changed_by } = req.body as {
+      cancel_qty?: number;
+      cancel_all?: boolean;
+      reason?: string;
+      changed_by?: string;
+    };
+    const data = await cancelStyleOrder(
+      id,
+      { cancel_qty, cancel_all, reason },
+      changed_by || req.user?.username || 'cancel-order',
+    );
+    res.json({ data });
+  } catch (err) {
+    res.status(400).json({ error: String(err) });
   }
 });
 

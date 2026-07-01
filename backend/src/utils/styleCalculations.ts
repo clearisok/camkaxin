@@ -2,6 +2,7 @@ import { isAwaitingSchedule } from '../services/styleAllocation.js';
 import type { CalendarExceptionMap } from './businessDays.js';
 import { countNonWorkdaysInScheduleSpan } from './businessDays.js';
 import { toYmdBeijing } from './beijingTime.js';
+import { isProcessingOrder } from './styleClosingValue.js';
 
 export interface StyleRow {
   id?: number;
@@ -57,7 +58,7 @@ export function enrichStyle(row: StyleRow): StyleRow {
   const processing_output_value = isChild
     ? null
     : calcProcessingOutputValue(row.quantity, row.processing_unit_price);
-  const sales_output_value = isChild
+  const sales_output_value = isChild || isProcessingOrder(row)
     ? null
     : calcSalesOutputValue(row.quantity, row.sales_price);
   return {
@@ -100,4 +101,5 @@ export const EDITABLE_STYLE_FIELDS = [
   'sales_price', 'printing_embroidery', 'order_follower', 'required_shipping_date', 'remarks',
   'is_outsourced', 'outsourced_factory', 'overseas_merchandiser', 'outsourced_price',
   'scheduling_zone', 'sort_order', 'required_days', 'parent_style_id', 'scheduling_remarks',
+  'order_type',
 ] as const;

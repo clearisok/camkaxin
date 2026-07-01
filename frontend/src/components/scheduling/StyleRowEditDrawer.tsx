@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Drawer, Form, Input, InputNumber, Button, message, Space } from 'antd';
+import { Drawer, Form, Input, InputNumber, Button, message, Space, Select } from 'antd';
 import dayjs from 'dayjs';
 import { DatePicker } from 'antd';
 import { updateStyle } from '@/api/styles';
@@ -16,6 +16,7 @@ interface StyleRowEditDrawerProps {
 export default function StyleRowEditDrawer({ record, open, onClose, onSaved }: StyleRowEditDrawerProps) {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const orderType = Form.useWatch('order_type', form) ?? 'distribution';
 
   useEffect(() => {
     if (!record || !open) return;
@@ -26,6 +27,7 @@ export default function StyleRowEditDrawer({ record, open, onClose, onSaved }: S
       salesperson: record.salesperson,
       po_number: record.po_number,
       quantity: record.quantity,
+      order_type: record.order_type ?? 'distribution',
       required_shipping_date: record.required_shipping_date ? dayjs(record.required_shipping_date) : undefined,
       closing_month: record.closing_month,
       fabric_readiness: record.fabric_readiness,
@@ -51,6 +53,9 @@ export default function StyleRowEditDrawer({ record, open, onClose, onSaved }: S
           ? values.required_shipping_date.format('YYYY-MM-DD')
           : null,
       };
+      if (patch.order_type === 'processing') {
+        patch.sales_price = null;
+      }
       const res = await updateStyle(record.id, patch);
       message.success('已保存');
       onSaved(res.data);
@@ -86,6 +91,17 @@ export default function StyleRowEditDrawer({ record, open, onClose, onSaved }: S
         <Form.Item name="salesperson" label="业务员"><Input /></Form.Item>
         <Form.Item name="po_number" label="PO号"><Input /></Form.Item>
         <Form.Item name="quantity" label="数量"><InputNumber className="w-full" min={0} /></Form.Item>
+        <Form.Item name="order_type" label="订单类型">
+          <Select options={[
+            { value: 'distribution', label: '经销' },
+            { value: 'processing', label: '加工' },
+          ]} />
+        </Form.Item>
+        {(record?.cancelled_quantity ?? 0) > 0 && (
+          <Form.Item label="取消件数">
+            <Input value={record?.cancelled_quantity} disabled />
+          </Form.Item>
+        )}
         <Form.Item name="required_shipping_date" label="要求出货日">
           <DatePicker className="w-full" />
         </Form.Item>
@@ -99,7 +115,9 @@ export default function StyleRowEditDrawer({ record, open, onClose, onSaved }: S
         <Form.Item name="printing_embroidery" label="印绣花"><Input /></Form.Item>
         <Form.Item name="order_follower" label="跟单员"><Input /></Form.Item>
         <Form.Item name="processing_unit_price" label="加工单价"><InputNumber className="w-full" min={0} step={0.01} /></Form.Item>
-        <Form.Item name="sales_price" label="销售单价"><InputNumber className="w-full" min={0} step={0.01} /></Form.Item>
+        {orderType !== 'processing' && (
+          <Form.Item name="sales_price" label="销售单价"><InputNumber className="w-full" min={0} step={0.01} /></Form.Item>
+        )}
         <Form.Item name="remarks" label="备注"><Input.TextArea rows={3} /></Form.Item>
       </Form>
     </Drawer>
