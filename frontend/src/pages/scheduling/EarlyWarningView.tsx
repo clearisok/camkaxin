@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Table, Switch, Input, Select, Space, Button, message, Tooltip } from 'antd';
-import { EditOutlined, HistoryOutlined, PlusOutlined, ReloadOutlined, FileExcelOutlined, StopOutlined } from '@ant-design/icons';
-import type { ColumnsType, ColumnType, TablePaginationConfig, TableProps } from 'antd/es/table';
+import { EditOutlined, HistoryOutlined, PlusOutlined, ReloadOutlined, FileExcelOutlined } from '@ant-design/icons';
+import type { ColumnsType, TablePaginationConfig, TableProps } from 'antd/es/table';
 import type { SorterResult } from 'antd/es/table/interface';
 import FilterField from '@/components/FilterField';
 import TableColumnSettings from '@/components/TableColumnSettings';
@@ -30,24 +30,21 @@ import {
 } from '@/utils/earlyWarningSession';
 import { fillEarlyWarningGaps, getStyles } from '@/api/styles';
 import type { StyleRecord } from '@/types/style';
-import { ORDER_TYPE_LABELS } from '@/types/style';
 import ClosingMonthRangeFilter from '@/components/scheduling/ClosingMonthRangeFilter';
 import {
   saveEarlyWarningSearchScope,
   type EarlyWarningSearchScope,
 } from '@/utils/schedulingFilters';
 import EarlyWarningFieldFilter from '@/components/scheduling/EarlyWarningFieldFilter';
-import EarlyWarningExportModal from '@/components/scheduling/EarlyWarningExportModal';
-import CancelOrderModal from '@/components/scheduling/CancelOrderModal';
 import type { FieldFilterState } from '@/utils/earlyWarningFieldFilter';
 import {
+  exportEarlyWarningCsv,
   formatOutputValueNumber,
   formatSumProcessingOutputNumber,
   formatSumSalesOutputNumber,
   sumOutputValues,
 } from '@/utils/earlyWarningExport';
-import { useAuth } from '@/contexts/AuthContext';
-import { enrichStyleClient, formatDate, isProcessingOrder, isUnscheduled } from '@/utils/styleCalculations';
+import { enrichStyleClient, formatDate, isUnscheduled } from '@/utils/styleCalculations';
 import { formatMaterialText, groupLabel } from '@/utils/schedulingZone';
 import {
   EARLY_WARNING_COLUMNS,
@@ -117,10 +114,10 @@ function sortStylesClient(rows: StyleRecord[], sortState: SortState): StyleRecor
   });
 }
 
-function withServerSort(
-  col: ColumnType<StyleRecord>,
+function withServerSort<T extends { key?: string }>(
+  col: T,
   sortState: SortState,
-): ColumnType<StyleRecord> {
+): T & { sorter?: boolean; sortOrder?: 'ascend' | 'descend' | null; sortDirections?: ('ascend' | 'descend')[] } {
   const key = col.key as string;
   if (!key || !SORTABLE_COLUMN_KEYS.has(key)) return col;
   return {
@@ -146,7 +143,6 @@ function getInitialEarlyWarningState() {
 
 export default function EarlyWarningView() {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const initialState = useMemo(() => getInitialEarlyWarningState(), []);
   const { filters: initialFilters, cache: initialCache, restoreFromCache } = initialState;
 
@@ -174,8 +170,6 @@ export default function EarlyWarningView() {
   );
   const [historyStyle, setHistoryStyle] = useState<StyleRecord | null>(null);
   const [editRecord, setEditRecord] = useState<StyleRecord | null>(null);
-  const [cancelRecord, setCancelRecord] = useState<StyleRecord | null>(null);
-  const [exportOpen, setExportOpen] = useState(false);
   const { applyPagination, resetPage, setPage, paginationConfig, page } = useTablePagination(
     EARLY_WARNING_PAGE_SIZE_KEY,
     restoreFromCache ? initialCache!.page : 1,
@@ -412,16 +406,6 @@ export default function EarlyWarningView() {
       title: '数量', dataIndex: 'quantity', key: 'quantity', width: 80,
       render: (v: number) => <ReadOnlyCell value={v} />,
     }, sortState),
-    {
-      title: '订单类型', dataIndex: 'order_type', key: 'order_type', width: 90,
-      render: (v: StyleRecord['order_type']) => (
-        <ReadOnlyCell value={ORDER_TYPE_LABELS[v ?? 'distribution']} />
-      ),
-    },
-    {
-      title: '取消件数', dataIndex: 'cancelled_quantity', key: 'cancelled_quantity', width: 90,
-      render: (v: number) => <ReadOnlyCell value={v > 0 ? v : undefined} placeholder="—" />,
-    },
     withServerSort({
       title: '款式名称', dataIndex: 'style_name', key: 'style_name', width: 120,
       render: (v: string) => <ReadOnlyCell value={v} />,
@@ -520,25 +504,14 @@ export default function EarlyWarningView() {
       render: (v: number) => <ReadOnlyCell value={formatOutputValueNumber(v)} />,
     }, sortState),
     {
-      title: '操作', key: 'action', width: 120, fixed: 'right',
+      title: '操作', key: 'action', width: 80, fixed: 'right',
       render: (_: unknown, record: StyleRecord) => (
-        <Space size={0}>
-          <Button
-            type="link"
-            size="small"
-            icon={<StopOutlined />}
-            onClick={() => setCancelRecord(record)}
-            disabled={(record.quantity ?? 0) < 1}
-          >
-            取消
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            icon={<HistoryOutlined />}
-            onClick={() => setHistoryStyle(record)}
-          />
-        </Space>
+        <Button
+          type="link"
+          size="small"
+          icon={<HistoryOutlined />}
+          onClick={() => setHistoryStyle(record)}
+        />
       ),
     },
   ], [handleOpenStyleDetail, sortState]);
@@ -555,27 +528,14 @@ export default function EarlyWarningView() {
 
   const scrollX = useMemo(() => estimateScrollX(columns as ColumnsType<unknown>), [columns]);
 
-  const exportMetaInput = useMemo(() => ({
-    exportUser: user?.displayName || user?.username || '',
-    exportTime: '',
-    searchScope,
-    searchKeyword: searchInput,
-    closingMonthRange,
-    fieldFilter,
-    unscheduledOnly,
-    sortField: sortState.field,
-    sortOrder: sortState.order,
-  }), [
-    user?.displayName,
-    user?.username,
-    searchScope,
-    searchInput,
-    closingMonthRange,
-    fieldFilter,
-    unscheduledOnly,
-    sortState.field,
-    sortState.order,
-  ]);
+  const handleExportSelected = () => {
+    if (selectedRows.length === 0) {
+      message.warning('请先勾选要导出的款式');
+      return;
+    }
+    exportEarlyWarningCsv(selectedRows);
+    message.success(`已导出 ${selectedRows.length} 条`);
+  };
 
   return (
     <div>
@@ -663,10 +623,10 @@ export default function EarlyWarningView() {
           <Space>
             <Button
               icon={<FileExcelOutlined />}
-              disabled={displayData.length === 0}
-              onClick={() => setExportOpen(true)}
+              disabled={selectedRowKeys.length === 0}
+              onClick={handleExportSelected}
             >
-              导出 Excel
+              导出选中{selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
             </Button>
             <Button
               type="primary"
@@ -748,12 +708,7 @@ export default function EarlyWarningView() {
               Table.SELECTION_NONE,
             ],
           }}
-          rowClassName={(record) => {
-            const classes: string[] = [];
-            if (isUnscheduled(record)) classes.push('unscheduled-warning');
-            if (isProcessingOrder(record)) classes.push('order-type-processing');
-            return classes.join(' ');
-          }}
+          rowClassName={(record) => (isUnscheduled(record) ? 'unscheduled-warning' : '')}
           onChange={handleTableChange}
         />
       </div>
@@ -772,22 +727,6 @@ export default function EarlyWarningView() {
         onSaved={(updated) => {
           patchRowInLists(enrichStyleClient(updated));
         }}
-      />
-
-      <EarlyWarningExportModal
-        open={exportOpen}
-        onClose={() => setExportOpen(false)}
-        columnPrefs={columnPrefs}
-        selectedRows={selectedRows}
-        filteredRows={displayData}
-        metaInput={exportMetaInput}
-      />
-
-      <CancelOrderModal
-        open={!!cancelRecord}
-        record={cancelRecord}
-        onClose={() => setCancelRecord(null)}
-        onSuccess={() => void loadData()}
       />
     </div>
   );

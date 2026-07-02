@@ -1,9 +1,5 @@
 import axios from 'axios';
 import { getStoredToken, setStoredToken } from '@/api/tokenStorage';
-import type {
-  EarlyWarningExportTemplate,
-  EarlyWarningTemplateConfig,
-} from '@/types/earlyWarningExportTemplate';
 
 const api = axios.create({
   baseURL: '/api',
@@ -21,7 +17,7 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (res) => res,
-  async (err) => {
+  (err) => {
     const e = err as Error & { code?: string; response?: { status?: number; data?: unknown }; config?: { url?: string; method?: string } };
     const status = e.response?.status;
     const responseData = e.response?.data;
@@ -37,20 +33,7 @@ api.interceptors.response.use(
     if (!err.response && (e.code === 'ERR_NETWORK' || e.message === 'Network Error')) {
       return Promise.reject(new Error('无法连接后端服务，请确认已运行 npm run dev'));
     }
-
-    let bodyError: string | undefined;
-    if (responseData instanceof Blob) {
-      try {
-        const text = await responseData.text();
-        const parsed = JSON.parse(text) as { error?: string };
-        bodyError = parsed.error;
-      } catch {
-        /* blob 非 JSON 时忽略 */
-      }
-    } else {
-      bodyError = (responseData as { error?: string } | undefined)?.error;
-    }
-
+    const bodyError = (responseData as { error?: string } | undefined)?.error;
     const raw = bodyError
       || (status === 500 && !bodyError
         ? `后端服务异常（HTTP 500${url ? ` · ${url}` : ''}），请重启 backend 并确认 PostgreSQL 已启动`
@@ -150,50 +133,10 @@ export const syncCambodiaHolidays = (years?: number[]) =>
 export const getSettings = () => api.get('/settings').then((r) => r.data);
 export const updateExchangeRate = (value: number) =>
   api.put('/settings/exchange-rate', { value }).then((r) => r.data);
-export const updateClosingIncludeProcessing = (value: boolean) =>
-  api.put('/settings/closing-include-processing', { value }).then((r) => r.data);
 export const getTemplates = () => api.get('/settings/templates').then((r) => r.data);
 export const uploadTemplate = (formData: FormData) =>
   api.post('/settings/templates', formData, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
 export const deleteTemplate = (id: number) => api.delete(`/settings/templates/${id}`).then((r) => r.data);
-
-export const getEarlyWarningExportTemplatesAdmin = () =>
-  api.get<{ data: EarlyWarningExportTemplate[] }>('/settings/early-warning-export-templates').then((r) => r.data);
-
-export const getEarlyWarningExportTemplate = (id: number) =>
-  api.get<{ data: EarlyWarningExportTemplate }>(`/settings/early-warning-export-templates/${id}`).then((r) => r.data);
-
-export const createEarlyWarningExportTemplate = (data: {
-  name: string;
-  config: EarlyWarningTemplateConfig;
-  is_default?: boolean;
-}) => api.post<{ data: EarlyWarningExportTemplate }>('/settings/early-warning-export-templates', data).then((r) => r.data);
-
-export const updateEarlyWarningExportTemplate = (
-  id: number,
-  data: { name?: string; config?: EarlyWarningTemplateConfig; is_default?: boolean },
-) => api.put<{ data: EarlyWarningExportTemplate }>(`/settings/early-warning-export-templates/${id}`, data).then((r) => r.data);
-
-export const deleteEarlyWarningExportTemplate = (id: number) =>
-  api.delete(`/settings/early-warning-export-templates/${id}`).then((r) => r.data);
-
-export const getSchedulingExportTemplatesAdmin = () =>
-  api.get<{ data: EarlyWarningExportTemplate[] }>('/settings/scheduling-export-templates').then((r) => r.data);
-
-export const createSchedulingExportTemplate = (data: {
-  name: string;
-  config: EarlyWarningTemplateConfig;
-  is_default?: boolean;
-}) => api.post<{ data: EarlyWarningExportTemplate }>('/settings/scheduling-export-templates', data).then((r) => r.data);
-
-export const updateSchedulingExportTemplate = (
-  id: number,
-  data: { name?: string; config?: EarlyWarningTemplateConfig; is_default?: boolean },
-) => api.put<{ data: EarlyWarningExportTemplate }>(`/settings/scheduling-export-templates/${id}`, data).then((r) => r.data);
-
-export const deleteSchedulingExportTemplate = (id: number) =>
-  api.delete(`/settings/scheduling-export-templates/${id}`).then((r) => r.data);
-
 export const uploadFile = (file: File, onProgress?: (percent: number) => void) => {
   const formData = new FormData();
   formData.append('file', file);

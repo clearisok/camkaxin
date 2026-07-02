@@ -1,10 +1,3 @@
-export type OrderType = 'distribution' | 'processing';
-
-export const ORDER_TYPE_LABELS: Record<OrderType, string> = {
-  distribution: '经销',
-  processing: '加工',
-};
-
 export interface StyleRecord {
   id: number;
   _dirty?: boolean;
@@ -29,13 +22,6 @@ export interface StyleRecord {
   group_name?: string;
   short_over_shipment?: string;
   quantity?: number;
-  order_type?: OrderType;
-  cancelled_quantity?: number;
-  cancel_revision?: number;
-  scheduling_ack_revision?: number;
-  cancel_pending?: boolean;
-  /** 关账视图：加工单计入关账值（万元 RMB） */
-  closing_processing_value?: number | null;
   processing_unit_price?: number;
   processing_output_value?: number | null;
   sales_price?: number;
@@ -112,8 +98,6 @@ export const STYLE_FIELD_LABELS: Record<string, string> = {
   quantity: '数量',
   processing_unit_price: '加工单价',
   sales_price: '销售单价',
-  order_type: '订单类型',
-  cancelled_quantity: '取消件数',
   printing_embroidery: '印绣花',
   order_follower: '跟单员',
   required_shipping_date: '要求出货日',

@@ -1,5 +1,4 @@
 import api from '@/api';
-import type { EarlyWarningExportTemplate } from '@/types/earlyWarningExportTemplate';
 import type { StyleRecord, StyleHistoryRecord, MonthlySummaryItem, ClosingMonthLock } from '@/types/style';
 
 export const getStyles = (params: Record<string, unknown> = {}) =>
@@ -88,26 +87,6 @@ export const bulkUpdateStyles = (updates: Array<{ id: number } & Record<string, 
 export const getStyleHistory = (id: number) =>
   api.get<{ data: StyleHistoryRecord[] }>(`/styles/${id}/history`).then((r) => r.data);
 
-export const getEarlyWarningExportTemplates = () =>
-  api.get<{ data: EarlyWarningExportTemplate[] }>('/styles/export-templates', { params: { view: 'early_warning' } }).then((r) => r.data);
-
-export const getSchedulingExportTemplates = () =>
-  api.get<{ data: EarlyWarningExportTemplate[] }>('/styles/export-templates', { params: { view: 'scheduling' } }).then((r) => r.data);
-
-export const exportSchedulingExcel = (payload: {
-  style_ids: number[];
-  column_keys: string[];
-  meta: Record<string, unknown>;
-  template_id?: number | null;
-}) => api.post('/styles/export/scheduling', payload, { responseType: 'blob' });
-
-export const exportEarlyWarningExcel = (payload: {
-  style_ids: number[];
-  column_keys: string[];
-  meta: Record<string, unknown>;
-  template_id?: number | null;
-}) => api.post('/styles/export/early-warning', payload, { responseType: 'blob' });
-
 export const getMonthlySummary = () =>
   api.get<{ data: MonthlySummaryItem[] }>('/styles/monthly-summary').then((r) => r.data);
 
@@ -119,11 +98,6 @@ export const lockClosingMonth = (closing_month: string) =>
 
 export const unlockClosingMonth = (closing_month: string) =>
   api.delete(`/styles/closing-locks/${encodeURIComponent(closing_month)}`).then((r) => r.data);
-
-export const cancelStyleOrder = (
-  id: number,
-  data: { cancel_qty?: number; cancel_all?: boolean; reason?: string },
-) => api.post<{ data: StyleRecord }>(`/styles/${id}/cancel`, data).then((r) => r.data);
 
 export type SandboxOperation =
   | { type: 'move'; id: number; target: string; label: string }

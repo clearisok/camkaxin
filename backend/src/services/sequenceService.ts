@@ -18,7 +18,7 @@ export async function nextQuotationNo(): Promise<string> {
     if (result.rows.length === 0) {
       await client.query(
         'INSERT INTO sequences (name, current_value, date_key, prefix) VALUES ($1, 1, $2, $3)',
-        ['quotation', 1, dateKey, 'Q']
+        ['quotation', dateKey, 'Q']
       );
     } else {
       const row = result.rows[0];
@@ -55,7 +55,7 @@ export async function nextItemNo(): Promise<string> {
     if (result.rows.length === 0) {
       await client.query(
         'INSERT INTO sequences (name, current_value, prefix) VALUES ($1, 1, $2)',
-        ['quotation_item', 1, 'MX']
+        ['quotation_item', 'MX']
       );
     } else {
       seq = result.rows[0].current_value + 1;

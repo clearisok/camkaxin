@@ -91,8 +91,6 @@ export const STYLE_FIELDS: FieldMeta[] = withModule([
   { field_code: 'style.closing_month', label: '关账月份', type: 'string' },
   { field_code: 'style.processing_unit_price', label: '加工单价', type: 'decimal' },
   { field_code: 'style.sales_price', label: '销售单价', type: 'decimal' },
-  { field_code: 'style.order_type', label: '订单类型', type: 'string' },
-  { field_code: 'style.cancelled_quantity', label: '取消件数', type: 'integer' },
   { field_code: 'style.processing_output_value', label: '加工产值', type: 'decimal' },
   { field_code: 'style.sales_output_value', label: '销售产值', type: 'decimal' },
   { field_code: 'style.fabric_structure', label: '面料结构', type: 'string' },

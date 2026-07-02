@@ -51,8 +51,6 @@ const CHART_NORMAL_OPEN = '#2563eb';
 const CHART_NORMAL_LOCKED = '#1e3a8a';
 const CHART_OUTSOURCE_OPEN = '#93c5fd';
 const CHART_OUTSOURCE_LOCKED = '#3b82f6';
-const CHART_PROCESSING_OPEN = '#22c55e';
-const CHART_PROCESSING_LOCKED = '#15803d';
 
 type ClosingSearchScope = 'local' | 'global';
 
@@ -198,14 +196,14 @@ export default function ClosingMonthView() {
   const averageValue = useMemo(() => {
     if (chartData.length === 0) return 0;
     return chartData.reduce(
-      (s, d) => s + d.normal_sales + d.outsource_sales + d.processing_sales,
+      (s, d) => s + d.normal_sales + d.outsource_sales,
       0,
     ) / chartData.length;
   }, [chartData]);
 
   const yearTotalValue = useMemo(() => chartData
     .filter((d) => d.closing_month.startsWith(`${chartYear}-`))
-    .reduce((s, d) => s + d.normal_sales + d.outsource_sales + d.processing_sales, 0),
+    .reduce((s, d) => s + d.normal_sales + d.outsource_sales, 0),
   [chartData, chartYear]);
 
   const dirtyRows = data.filter((r) => r._dirty);
@@ -370,7 +368,7 @@ export default function ClosingMonthView() {
                 />
               ))}
             </Bar>
-            <Bar dataKey="outsource_sales" stackId="sales" name="外发">
+            <Bar dataKey="outsource_sales" stackId="sales" name="外发" radius={[4, 4, 0, 0]}>
               {chartData.map((entry) => (
                 <Cell
                   key={`out-${entry.closing_month}`}
@@ -378,18 +376,10 @@ export default function ClosingMonthView() {
                 />
               ))}
             </Bar>
-            <Bar dataKey="processing_sales" stackId="sales" name="加工" radius={[4, 4, 0, 0]}>
-              {chartData.map((entry) => (
-                <Cell
-                  key={`proc-${entry.closing_month}`}
-                  fill={entry.locked ? CHART_PROCESSING_LOCKED : CHART_PROCESSING_OPEN}
-                />
-              ))}
-            </Bar>
           </BarChart>
         </ResponsiveContainer>
         <p className="scheduling-toolbar-hint mt-3 mb-0">
-          柱状图含已关账月份（更深蓝色）；经销、外发、加工（绿色，需系统设置开启计入）堆叠。虚线为区间月均值，标注含 {chartYear} 年度产值合计。
+          柱状图含已关账月份（更深蓝色）；下方为正常订单、上方为外发。虚线为区间月均值，标注含 {chartYear} 年度产值合计。
         </p>
       </div>
 

@@ -2,10 +2,6 @@ import type { StyleRecord } from '@/types/style';
 import { isAwaitingSchedule } from '@/utils/schedulingRules';
 import { formatDateBeijing, toYmdBeijingClient, STYLE_DATE_FIELD_KEYS } from '@/utils/beijingTime';
 
-export function isProcessingOrder(row: Pick<StyleRecord, 'order_type'>): boolean {
-  return row.order_type === 'processing';
-}
-
 export function calcDays(online?: string | null, offline?: string | null): number | null {
   const a = toYmdBeijingClient(online);
   const b = toYmdBeijingClient(offline);
@@ -26,7 +22,7 @@ export function enrichStyleClient(row: StyleRecord): StyleRecord {
     : row.quantity != null && row.processing_unit_price != null
       ? Math.round(row.quantity * row.processing_unit_price * 100) / 100
       : null;
-  const sales_output_value = isChild || isProcessingOrder(row)
+  const sales_output_value = isChild
     ? null
     : row.quantity != null && row.sales_price != null
       ? Math.round(row.quantity * row.sales_price * 100) / 100

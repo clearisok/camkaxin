@@ -8,7 +8,6 @@ import '@/utils/beijingTime';
 import App from './App';
 import { AuthProvider } from './contexts/AuthContext';
 import { appTheme } from './theme/app-theme';
-import './design/tokens.css';
 import './index.css';
 
 dayjs.locale('zh-cn');

@@ -18,14 +18,10 @@ import {
   LogoutOutlined,
   SafetyOutlined,
   UsergroupAddOutlined,
-  ArrowLeftOutlined,
-  HistoryOutlined,
-  SaveOutlined,
 } from '@ant-design/icons';
 import BrandLogo from '@/components/BrandLogo';
 import SchedulingHeaderTabs from '@/components/SchedulingHeaderTabs';
 import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext';
-import { HeaderActionsProvider, useHeaderActionsConfig } from '@/contexts/HeaderActionsContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { CONFIG_CHILD_KEYS, MENU_PERMISSION_MAP } from '@/constants/permissions';
 
@@ -49,14 +45,12 @@ const PAGE_TITLES: Record<string, string> = {
   '/config/roles': '角色权限',
 };
 
-function isStyleDetailPath(pathname: string): boolean {
-  return /^\/scheduling\/styles\/\d+$/.test(pathname);
-}
-
 function resolvePageTitle(pathname: string): string {
-  if (pathname.startsWith('/quotations/new') || /^\/quotations\/\d+/.test(pathname)) return '';
+  if (pathname.startsWith('/quotations/new')) return '新建报价单';
+  if (pathname.match(/^\/quotations\/\d+\/edit$/)) return '编辑报价单';
+  if (pathname.match(/^\/quotations\/\d+$/)) return '报价单详情';
   if (pathname.startsWith('/scheduling/styles/new')) return '新建款式';
-  if (isStyleDetailPath(pathname)) return '';
+  if (pathname.match(/^\/scheduling\/styles\/\d+$/)) return '款式详情';
   const matched = NAV_KEYS.find((key) => key !== '/' && pathname.startsWith(key));
   return matched ? (PAGE_TITLES[matched] ?? '柬凯内部系统') : '柬凯内部系统';
 }
@@ -236,6 +230,9 @@ function AppSider() {
           />
         </ConfigProvider>
       </div>
+      <div className={`app-sider-footer${collapsed ? ' is-collapsed' : ''}`}>
+        <SidebarToggle />
+      </div>
     </Sider>
   );
 }
@@ -244,10 +241,8 @@ const AppMain = memo(function AppMain() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const headerActions = useHeaderActionsConfig();
   const showSchedulingTabs = location.pathname === '/scheduling';
   const pageTitle = useMemo(() => resolvePageTitle(location.pathname), [location.pathname]);
-  const showPageTitle = Boolean(pageTitle);
 
   const userMenuItems: MenuProps['items'] = [
     {
@@ -268,50 +263,19 @@ const AppMain = memo(function AppMain() {
     <Layout className="h-screen flex flex-col app-main-layout">
       <Header className={`app-top-header${showSchedulingTabs ? ' has-view-switcher' : ''}`}>
         <div className="app-header-inner">
-          {headerActions.back && headerActions.onBack && (
-            <Button
-              icon={<ArrowLeftOutlined />}
-              onClick={headerActions.onBack}
-              className="app-header-back-btn"
-            >
-              返回
-            </Button>
-          )}
-          <SidebarToggle />
           <div className="app-header-leading">
-            {showPageTitle && <h1 className="app-header-title">{pageTitle}</h1>}
+            <h1 className="app-header-title">{pageTitle}</h1>
             {showSchedulingTabs && (
               <div className="app-header-switcher">
                 <SchedulingHeaderTabs />
               </div>
             )}
           </div>
-          <div className="app-header-trailing">
-            {(headerActions.history || headerActions.save) && (
-              <div className="app-header-actions">
-                {headerActions.history && headerActions.onHistory && (
-                  <Button icon={<HistoryOutlined />} onClick={headerActions.onHistory}>
-                    变更历史
-                  </Button>
-                )}
-                {headerActions.save && headerActions.onSave && (
-                  <Button
-                    type="primary"
-                    icon={<SaveOutlined />}
-                    loading={headerActions.saving}
-                    onClick={headerActions.onSave}
-                  >
-                    保存
-                  </Button>
-                )}
-              </div>
-            )}
-            <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }} placement="bottomRight">
-              <Button type="text" className="app-header-user" icon={<UserOutlined />}>
-                {user?.displayName || user?.username || '用户'}
-              </Button>
-            </Dropdown>
-          </div>
+          <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }} placement="bottomRight">
+            <Button type="text" className="app-header-user" icon={<UserOutlined />}>
+              {user?.displayName || user?.username || '用户'}
+            </Button>
+          </Dropdown>
         </div>
       </Header>
       <Content className="app-main-content flex-1 overflow-y-auto">
@@ -324,12 +288,10 @@ const AppMain = memo(function AppMain() {
 export default function AppLayout() {
   return (
     <SidebarProvider>
-      <HeaderActionsProvider>
-        <Layout className="h-screen overflow-hidden">
-          <AppSider />
-          <AppMain />
-        </Layout>
-      </HeaderActionsProvider>
+      <Layout className="h-screen overflow-hidden">
+        <AppSider />
+        <AppMain />
+      </Layout>
     </SidebarProvider>
   );
 }

@@ -3,6 +3,7 @@ import { Table, Button, Input, Select, Space, message, Popconfirm, Modal, Checkb
 import { PlusOutlined, FileExcelOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import FilterField from '@/components/FilterField';
+import PageHeader from '@/components/PageHeader';
 import TableColumnSettings from '@/components/TableColumnSettings';
 import ResizableTableHeader from '@/components/ResizableTableHeader';
 import {
@@ -226,6 +227,16 @@ export default function QuotationList() {
 
   return (
     <div className="page-container">
+      <PageHeader
+        title="报价单列表"
+        description="按品牌、业务员或状态筛选；支持批量导出汇总 Excel"
+        extra={(
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/quotations/new')}>
+            新建报价单
+          </Button>
+        )}
+      />
+
       <div className="card-panel mb-4">
         <Space wrap className="w-full justify-between" align="end">
           <div className="filter-toolbar">
@@ -277,9 +288,6 @@ export default function QuotationList() {
             </FilterField>
           </div>
           <Space wrap>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/quotations/new')}>
-              新建报价单
-            </Button>
             <Button
               icon={<FileExcelOutlined />}
               disabled={selectedRowKeys.length === 0}

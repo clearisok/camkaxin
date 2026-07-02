@@ -4,7 +4,6 @@ import {
   HistoryOutlined, ReloadOutlined, ColumnHeightOutlined,
   VerticalAlignMiddleOutlined, CloseOutlined,
   ExperimentOutlined, BellOutlined, ArrowUpOutlined, ArrowDownOutlined,
-  FileExcelOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import TableColumnSettings from '@/components/TableColumnSettings';
@@ -54,8 +53,6 @@ import {
 } from '@/utils/viewColumnUtils';
 import { useTablePagination } from '@/utils/tablePagination';
 import { isAwaitingSchedule } from '@/utils/schedulingRules';
-import SchedulingExportModal from '@/components/scheduling/SchedulingExportModal';
-import { useAuth } from '@/contexts/AuthContext';
 import {
   ALL_COLLAPSE_KEYS,
   EXPAND_ALL_COLLAPSE_KEYS,
@@ -77,7 +74,6 @@ const MAIN_VIEW_COLLAPSE_KEYS = ALL_COLLAPSE_KEYS.filter(
 );
 
 export default function SchedulingView() {
-  const { user } = useAuth();
   const [data, setData] = useState<StyleRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchInput, setSearchInput] = useState('');
@@ -96,7 +92,6 @@ export default function SchedulingView() {
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
   const [outsourceRecord, setOutsourceRecord] = useState<StyleRecord | null>(null);
-  const [exportOpen, setExportOpen] = useState(false);
   const [moveSavingId, setMoveSavingId] = useState<number | null>(null);
   const { paginationConfig } = useTablePagination(SCHEDULING_PAGE_SIZE_KEY);
   const { savingId, updateLocal, saveField: baseSaveField } = useStyleInlineEdit(setData);
@@ -482,22 +477,11 @@ export default function SchedulingView() {
 
   const renderZoneLabel = (key: string, rows: StyleRecord[]) => {
     const title = collapseLabel(key, rows.length);
-    const hasCancelPending = rows.some((r) => r.cancel_pending);
-    if (!isProductionGroupKey(key) || rows.length === 0) {
-      return (
-        <span className="scheduling-zone-collapse-title-wrap">
-          {title}
-          {hasCancelPending && <Tag color="red" className="ml-2">有取消订单</Tag>}
-        </span>
-      );
-    }
+    if (!isProductionGroupKey(key) || rows.length === 0) return title;
     const { brands, latestOfflineTime } = summarizeProductionGroup(rows);
     return (
       <div className="scheduling-zone-collapse-label">
-        <span className="scheduling-zone-collapse-title-wrap">
-          <span className="scheduling-zone-collapse-title">{title}</span>
-          {hasCancelPending && <Tag color="red" className="ml-2">有取消订单</Tag>}
-        </span>
+        <span className="scheduling-zone-collapse-title">{title}</span>
         <div className="scheduling-zone-collapse-meta">
           {brands.length > 0 && (
             <span className="scheduling-zone-brand-tags">
@@ -547,12 +531,7 @@ export default function SchedulingView() {
           ...paginationConfig,
           showTotal: (t) => `共 ${t} 款`,
         }}
-        rowClassName={(record) => {
-          const classes: string[] = [];
-          if (isOfflineAfterShipping(record)) classes.push('offline-after-shipping');
-          if (record.cancel_pending) classes.push('scheduling-cancel-pending');
-          return classes.join(' ');
-        }}
+        rowClassName={(record) => (isOfflineAfterShipping(record) ? 'offline-after-shipping' : '')}
       />
     ),
   }));
@@ -588,19 +567,6 @@ export default function SchedulingView() {
               onSearch={setSearchInput}
             />
             <Button icon={<ReloadOutlined />} loading={loading} onClick={loadData}>刷新</Button>
-            <Button
-              icon={<FileExcelOutlined />}
-              disabled={sandboxMode || data.length === 0}
-              onClick={() => {
-                if (sandboxMode) {
-                  message.warning('排单沙箱模式下不可导出，请先退出沙箱');
-                  return;
-                }
-                setExportOpen(true);
-              }}
-            >
-              导出 Excel
-            </Button>
             {!schedulingMode && (
               <>
                 <Button icon={<ColumnHeightOutlined />} onClick={() => setActiveKeys([...EXPAND_ALL_COLLAPSE_KEYS])}>
@@ -716,16 +682,6 @@ export default function SchedulingView() {
         open={notificationOpen}
         onClose={() => setNotificationOpen(false)}
         onChanged={() => { loadData(); refreshNotificationCount(); }}
-      />
-
-      <SchedulingExportModal
-        open={exportOpen}
-        onClose={() => setExportOpen(false)}
-        columnPrefs={columnPrefs}
-        filteredRows={data}
-        searchKeyword={searchInput}
-        exportUser={user?.displayName || user?.username || ''}
-        sandboxMode={sandboxMode}
       />
     </div>
   );

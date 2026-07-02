@@ -6,8 +6,6 @@ export const EARLY_WARNING_COLUMNS: ColumnPrefItem[] = [
   { key: 'style_number', title: '款号', defaultWidth: 110 },
   { key: 'brand', title: '品牌', defaultWidth: 100 },
   { key: 'quantity', title: '数量', defaultWidth: 80 },
-  { key: 'order_type', title: '订单类型', defaultWidth: 90 },
-  { key: 'cancelled_quantity', title: '取消件数', defaultWidth: 90 },
   { key: 'style_name', title: '款式名称', defaultWidth: 120 },
   { key: 'salesperson', title: '业务员', defaultWidth: 96 },
   { key: 'po_number', title: 'PO号', defaultWidth: 110 },

@@ -1,7 +1,6 @@
 # 柬凯内部管理系统
 
 服装贸易内部管理系统，包含 **报价模块** 与 **排产模块**（款式预警、生产排单、关账管理）。
-test webhook
 
 ## 技术栈
 
@@ -157,175 +156,6 @@ camkaxin/
 | `npm run db:seed-scheduling` | 排产演示款式 |
 | `npm run db:seed-auth` | 用户与权限种子 |
 | `npm test` | 后端单元测试 |
-
-## 数据备份与恢复
-
-生产环境业务数据分布在 **PostgreSQL 数据库**、**上传文件目录** 与 **环境配置** 三处，缺一不可。数据库里存的是路径引用（如款式图、报价附件、Excel 模板），恢复数据库时**必须同时恢复 `uploads` 目录**，否则页面会出现图片/附件丢失。
-
-### 需要备份的内容
-
-| 类别 | 路径 / 对象 | 包含内容 |
-|------|-------------|----------|
-| **PostgreSQL 数据库** | 容器 `jiankai-postgres`，库名 `jiankai_quotation` | 报价单、款式/排单、关账锁定、用户权限、系统设置、文件路径记录等 |
-| **上传文件** | `backend/uploads/`（由 `.env` 中 `UPLOAD_DIR=./uploads` 决定，相对后端工作目录） | `images/` 款式图与图片附件；`videos/` 视频；`documents/` 文档；`templates/` Excel 导出模板；`temp/` 临时文件（可选备份） |
-| **环境配置** | `backend/.env` | `DATABASE_URL`、`JWT_SECRET`、`CORS_ORIGIN`、`ADMIN_INITIAL_PASSWORD` 等 |
-| **Docker 数据卷（可选）** | 卷名 `postgres_data` | PostgreSQL 物理数据目录，适合整卷快照；日常更推荐 `pg_dump` |
-
-> 代码仓库（Git）**不是**业务数据备份。`.gitignore` 已排除 `uploads/` 与 `.env`，这些内容只存在于服务器本地。
-
-### 备份脚本示例
-
-以下示例中 `APP_ROOT` 为项目根目录，请按实际路径修改（如 `/opt/jiankai/camkaxin` 或 `/www/wwwroot/154.198.42.71`）：
-
-```bash
-APP_ROOT=/opt/jiankai/camkaxin
-BACKUP_DIR=/var/backups/jiankai
-DATE=$(date +%F_%H%M)
-
-mkdir -p "$BACKUP_DIR"
-
-# 1. 数据库（推荐自定义格式，体积小、恢复快）
-docker exec jiankai-postgres pg_dump -U jiankai -Fc jiankai_quotation \
-  > "$BACKUP_DIR/db_${DATE}.dump"
-
-# 也可导出纯 SQL（便于人工查看）
-docker exec jiankai-postgres pg_dump -U jiankai jiankai_quotation \
-  > "$BACKUP_DIR/db_${DATE}.sql"
-
-# 2. 上传文件
-tar -czf "$BACKUP_DIR/uploads_${DATE}.tar.gz" -C "$APP_ROOT/backend" uploads
-
-# 3. 环境配置
-cp "$APP_ROOT/backend/.env" "$BACKUP_DIR/env_${DATE}.env"
-
-# 4. 可选：记录当前 Git 版本，便于恢复后对齐代码
-cd "$APP_ROOT" && git rev-parse HEAD > "$BACKUP_DIR/git_${DATE}.txt"
-```
-
-**建议**
-
-- 数据库：**每日**自动备份；保留至少 7～30 天滚动副本。
-- 上传目录：与数据库**同频率**打包；数据量大时可增量同步（rsync / restic 等）。
-- 备份文件存放到**另一块磁盘或对象存储**（阿里云 OSS、腾讯云 COS 等），不要只放在应用同一台机器。
-- 定期做**恢复演练**（在测试机还原一次），确认备份可用。
-
-**定时任务（crontab 示例，每天凌晨 2 点）**
-
-```bash
-0 2 * * * APP_ROOT=/opt/jiankai/camkaxin BACKUP_DIR=/var/backups/jiankai /opt/jiankai/backup.sh >> /var/log/jiankai-backup.log 2>&1
-```
-
-可将上文备份命令保存为 `/opt/jiankai/backup.sh` 并 `chmod +x`。
-
-### 恢复流程
-
-#### 场景 A：同版本灾难恢复（整库 + 文件还原）
-
-适用于服务器故障、误删数据后，用**同一代码版本**的备份完整恢复。
-
-```bash
-APP_ROOT=/opt/jiankai/camkaxin
-BACKUP_DIR=/var/backups/jiankai
-
-# 选定备份文件（示例）
-DB_DUMP="$BACKUP_DIR/db_2026-06-08_0200.dump"
-UPLOADS_TAR="$BACKUP_DIR/uploads_2026-06-08_0200.tar.gz"
-ENV_FILE="$BACKUP_DIR/env_2026-06-08_0200.env"
-
-# 1. 停止应用，避免写入
-pm2 stop jiankai-api
-
-# 2. 确保数据库容器运行
-cd "$APP_ROOT" && docker compose up -d
-
-# 3. 重建空库并导入（会清空该库现有数据）
-docker exec -i jiankai-postgres psql -U jiankai -d postgres <<'SQL'
-SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'jiankai_quotation' AND pid <> pg_backend_pid();
-DROP DATABASE IF EXISTS jiankai_quotation;
-CREATE DATABASE jiankai_quotation OWNER jiankai;
-SQL
-
-# 自定义格式备份
-docker exec -i jiankai-postgres pg_restore -U jiankai -d jiankai_quotation --no-owner --role=jiankai \
-  < "$DB_DUMP"
-
-# 若使用的是 .sql 文件，改用：
-# docker exec -i jiankai-postgres psql -U jiankai jiankai_quotation < "$BACKUP_DIR/db_xxxx.sql"
-
-# 4. 恢复上传文件
-rm -rf "$APP_ROOT/backend/uploads"
-tar -xzf "$UPLOADS_TAR" -C "$APP_ROOT/backend"
-
-# 5. 恢复环境配置
-cp "$ENV_FILE" "$APP_ROOT/backend/.env"
-
-# 6. 启动应用（同版本代码，勿执行 db:init）
-cd "$APP_ROOT"
-npm run build:all    # 若 dist 已存在且版本一致可跳过
-pm2 start jiankai-api
-# 或：pm2 restart jiankai-api
-```
-
-#### 场景 B：迁移到新服务器
-
-1. 新机器安装 Node、Docker、Nginx、PM2（见下文 [CentOS 服务器部署](#centos-服务器部署)）。
-2. 克隆/上传**与备份时相同或更新**的代码到 `APP_ROOT`。
-3. `docker compose up -d`，复制 `backend/.env`（或从 `.env.example` 创建后按旧服务器修改）。
-4. 按**场景 A** 步骤 3～4 导入数据库与 `uploads`。
-5. 执行：
-
-```bash
-cd "$APP_ROOT"
-npm run install:all
-npm run db:migrate      # 仅当新代码比备份时更新；全新空库才需要 db:init
-npm run build:all
-pm2 start dist/index.js --name jiankai-api
-```
-
-6. 配置 Nginx、防火墙，修改 DNS 指向新服务器。
-
-#### 场景 C：仅恢复上传文件
-
-数据库未损坏、仅 `uploads` 丢失时：
-
-```bash
-pm2 stop jiankai-api
-rm -rf "$APP_ROOT/backend/uploads"
-tar -xzf "$BACKUP_DIR/uploads_xxxx.tar.gz" -C "$APP_ROOT/backend"
-pm2 start jiankai-api
-```
-
-#### 场景 D：仅恢复数据库
-
-上传文件完好、仅数据库损坏时：执行场景 A 的步骤 1、2、3，**跳过** uploads 解压，再重启应用。
-
-### 恢复时务必注意
-
-| 操作 | 适用场景 | 说明 |
-|------|----------|------|
-| `npm run db:init` | **仅全新空库首次安装** | 会执行完整 `schema.sql`，**不可**用于已有业务数据的恢复或升级 |
-| `npm run db:migrate` | 代码升级、恢复后版本更新 | 执行增量迁移；恢复备份后若代码版本一致，通常**不需要**再 migrate |
-| `npm run db:seed` / `db:seed-auth` | 仅演示/首次初始化 | 恢复生产备份后**不要**执行，否则会覆盖或重复种子数据 |
-
-恢复完成后验证：
-
-```bash
-curl http://127.0.0.1:3001/api/health
-# 登录系统 → 打开报价单/款式预警 → 确认图片、附件、Excel 模板可正常访问
-```
-
-### 使用 Docker 数据卷备份（可选）
-
-除 `pg_dump` 外，可对 PostgreSQL 数据卷做文件级备份（需在容器**停止**时保证一致性，或配合数据库备份使用）：
-
-```bash
-docker compose stop postgres
-docker run --rm -v camkaxin_postgres_data:/volume -v /var/backups/jiankai:/backup \
-  alpine tar -czf /backup/postgres_volume_$(date +%F).tar.gz -C /volume .
-docker compose start postgres
-```
-
-卷名以 `docker volume ls` 实际输出为准（Compose 项目名不同前缀可能不同）。
 
 ## 计算规则
 
@@ -680,24 +510,20 @@ pm2 restart jiankai-api
 # 或：sudo systemctl restart jiankai-api
 ```
 
-### 六、备份与恢复
+### 六、备份建议
 
-日常备份与灾难恢复步骤见 **[数据备份与恢复](#数据备份与恢复)**。生产环境最低要求：
+定期备份以下内容：
 
 ```bash
-# 每日备份示例（路径请按实际 APP_ROOT 修改）
-APP_ROOT=/opt/jiankai/camkaxin
-BACKUP_DIR=/var/backups/jiankai
-mkdir -p "$BACKUP_DIR"
-DATE=$(date +%F)
+# 1. 数据库（示例）
+docker exec jiankai-postgres pg_dump -U jiankai jiankai_quotation > backup_$(date +%F).sql
 
-docker exec jiankai-postgres pg_dump -U jiankai -Fc jiankai_quotation \
-  > "$BACKUP_DIR/db_${DATE}.dump"
-tar -czf "$BACKUP_DIR/uploads_${DATE}.tar.gz" -C "$APP_ROOT/backend" uploads
-cp "$APP_ROOT/backend/.env" "$BACKUP_DIR/env_${DATE}.env"
+# 2. 上传文件
+tar -czf uploads_$(date +%F).tar.gz -C /opt/jiankai/camkaxin/backend uploads
+
+# 3. 环境配置
+cp /opt/jiankai/camkaxin/backend/.env ~/jiankai.env.backup
 ```
-
-恢复时：**禁止对已有业务库执行 `db:init`**；须同时还原数据库与 `uploads` 目录。
 
 ### 七、常见问题（CentOS）
 
