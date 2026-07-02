@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Table, Switch, Input, Select, Space, Button, message, Tooltip } from 'antd';
 import { EditOutlined, HistoryOutlined, PlusOutlined, ReloadOutlined, FileExcelOutlined, StopOutlined } from '@ant-design/icons';
-import type { ColumnsType, TablePaginationConfig, TableProps } from 'antd/es/table';
+import type { ColumnsType, ColumnType, TablePaginationConfig, TableProps } from 'antd/es/table';
 import type { SorterResult } from 'antd/es/table/interface';
 import FilterField from '@/components/FilterField';
 import TableColumnSettings from '@/components/TableColumnSettings';
@@ -117,10 +117,10 @@ function sortStylesClient(rows: StyleRecord[], sortState: SortState): StyleRecor
   });
 }
 
-function withServerSort<T extends { key?: string }>(
-  col: T,
+function withServerSort(
+  col: ColumnType<StyleRecord>,
   sortState: SortState,
-): T & { sorter?: boolean; sortOrder?: 'ascend' | 'descend' | null; sortDirections?: ('ascend' | 'descend')[] } {
+): ColumnType<StyleRecord> {
   const key = col.key as string;
   if (!key || !SORTABLE_COLUMN_KEYS.has(key)) return col;
   return {

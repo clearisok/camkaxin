@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState, forwardRef, type ReactElement, cloneElement, isValidElement } from 'react';
+import { useEffect, useRef, useState, forwardRef, type CSSProperties, type ReactElement, cloneElement, isValidElement } from 'react';
 import { Input, InputNumber, Select, DatePicker } from 'antd';
-import type { InputProps, InputNumberProps, SelectProps, DatePickerProps } from 'antd';
+import type { GetRef, InputProps, InputNumberProps, SelectProps, DatePickerProps } from 'antd';
 import dayjs from 'dayjs';
+
+type InputRef = GetRef<typeof Input>;
+type InputNumberRef = GetRef<typeof InputNumber>;
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 400;
@@ -26,7 +29,7 @@ function AutoFitShell({
   children,
 }: {
   text: string;
-  children: ReactElement;
+  children: ReactElement<{ style?: CSSProperties }>;
 }) {
   const { measureRef, width } = useAutoWidth(text);
 
@@ -35,14 +38,14 @@ function AutoFitShell({
       <span ref={measureRef} className="auto-fit-measure" aria-hidden />
       {isValidElement(children)
         ? cloneElement(children, {
-            style: { width: '100%', ...(children.props.style as object) },
+            style: { width: '100%', ...children.props.style },
           })
         : children}
     </div>
   );
 }
 
-export const AutoFitInput = forwardRef<HTMLInputElement, InputProps>(function AutoFitInput(
+export const AutoFitInput = forwardRef<InputRef, InputProps>(function AutoFitInput(
   { value, placeholder, ...rest },
   ref,
 ) {
@@ -54,7 +57,7 @@ export const AutoFitInput = forwardRef<HTMLInputElement, InputProps>(function Au
   );
 });
 
-export const AutoFitInputNumber = forwardRef<HTMLInputElement, InputNumberProps>(function AutoFitInputNumber(
+export const AutoFitInputNumber = forwardRef<InputNumberRef, InputNumberProps>(function AutoFitInputNumber(
   { value, placeholder, ...rest },
   ref,
 ) {
@@ -80,7 +83,7 @@ export function AutoFitSelect<ValueType = string>({
     ? String(optionLabel.label ?? '')
     : value != null && String(value) !== ''
       ? String(value)
-      : (placeholder ?? '');
+      : String(placeholder ?? '');
 
   return (
     <AutoFitShell text={label}>

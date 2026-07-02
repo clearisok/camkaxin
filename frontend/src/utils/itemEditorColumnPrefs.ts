@@ -84,8 +84,8 @@ export function saveAccessoryColumnWidths(widths: ItemEditorColumnWidths) {
   localStorage.setItem(ACCESSORY_STORAGE_KEY, JSON.stringify(normalizeWidths(ACCESSORY_COLUMN_DEFS, widths)));
 }
 
-export function estimateItemEditorScrollX(
-  columns: ColumnsType<unknown>,
+export function estimateItemEditorScrollX<T = unknown>(
+  columns: ColumnsType<T>,
   extra = 0
 ): number {
   return extra + columns.reduce((sum, col) => sum + (typeof col.width === 'number' ? col.width : 120), 0);

@@ -85,7 +85,7 @@ export function applyViewColumnPreferences<T>(
   return [...prepended, ...dataCols, ...trailing];
 }
 
-export function estimateScrollX(columns: ColumnsType<unknown>, extra = 48): number {
+export function estimateScrollX<T = unknown>(columns: ColumnsType<T>, extra = 48): number {
   return extra + columns.reduce((sum, col) => sum + (typeof col.width === 'number' ? col.width : 120), 0);
 }
 
