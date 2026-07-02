@@ -77,7 +77,7 @@ router.post('/closing-locks', async (req: Request, res: Response) => {
 
 router.delete('/closing-locks/:month', async (req: Request, res: Response) => {
   try {
-    const month = decodeURIComponent(req.params.month);
+    const month = decodeURIComponent(String(req.params.month));
     await unlockClosingMonth(month);
     res.json({ ok: true });
   } catch (err) {

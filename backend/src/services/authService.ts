@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import jwt, { type SignOptions } from 'jsonwebtoken';
 import { query } from '../config/database.js';
 import type { AuthUser, JwtPayload } from '../types/auth.js';
 import { loadUserPermissions } from './permissionService.js';
@@ -32,7 +32,7 @@ export function signAccessToken(user: { id: number; username: string }): string 
   return jwt.sign(
     { sub: user.id, username: user.username } satisfies JwtPayload,
     JWT_SECRET,
-    { expiresIn: JWT_ACCESS_TTL },
+    { expiresIn: JWT_ACCESS_TTL as SignOptions['expiresIn'] },
   );
 }
 

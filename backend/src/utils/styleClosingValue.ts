@@ -19,7 +19,7 @@ export function calcClosingProcessingValue(
   return Math.round((q * p * exchangeRate) / 10000 * 100) / 100;
 }
 
-export function isProcessingOrder(row: { order_type?: unknown }): boolean {
+export function isProcessingOrder(row: StyleRow | { order_type?: unknown }): boolean {
   return normalizeOrderType(row.order_type) === 'processing';
 }
 

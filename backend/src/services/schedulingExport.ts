@@ -60,7 +60,7 @@ function cellValue(row: StyleRow, key: string): string {
     const g = row.group_name;
     return g ? String(g) : '';
   }
-  const v = row[key];
+  const v = (row as Record<string, unknown>)[key];
   if (v == null || v === '') return '';
   if (key === 'processing_output_value' || key === 'sales_output_value') {
     return formatOutputValueNumber(v);

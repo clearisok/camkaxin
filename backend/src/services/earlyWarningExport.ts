@@ -49,7 +49,7 @@ function cellValue(row: StyleRow, key: string): string {
     const parts = [row.fabric_readiness, row.accessories_readiness].filter(Boolean);
     return parts.join(' / ');
   }
-  const v = row[key];
+  const v = (row as Record<string, unknown>)[key];
   if (v == null || v === '') return '';
   if (key === 'processing_output_value' || key === 'sales_output_value') {
     return formatOutputValueNumber(v);

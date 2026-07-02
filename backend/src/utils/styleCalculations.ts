@@ -6,14 +6,54 @@ import { isProcessingOrder } from './styleClosingValue.js';
 
 export interface StyleRow {
   id?: number;
+  salesperson?: string | null;
+  brand?: string | null;
+  style_number?: string | null;
+  style_name?: string | null;
+  closing_month?: string | null;
+  style_image?: string | null;
+  fabric_structure?: string | null;
+  fabric_readiness?: string | null;
+  accessories_readiness?: string | null;
+  sample_progress?: string | null;
+  first_bed_time?: string | Date | null;
+  po_number?: string | null;
   online_time?: string | Date | null;
   offline_time?: string | Date | null;
   scheduled_output?: number | null;
   avg_daily_output?: number | null;
+  group_name?: string | null;
+  short_over_shipment?: string | null;
   quantity?: number | null;
   processing_unit_price?: number | null;
   sales_price?: number | null;
-  [key: string]: unknown;
+  printing_embroidery?: string | null;
+  order_follower?: string | null;
+  required_shipping_date?: string | Date | null;
+  remarks?: string | null;
+  is_outsourced?: boolean | null;
+  outsourced_factory?: string | null;
+  overseas_merchandiser?: string | null;
+  outsourced_price?: number | null;
+  scheduling_zone?: string | null;
+  sort_order?: number | null;
+  required_days?: number | null;
+  parent_style_id?: number | null;
+  scheduling_remarks?: string | null;
+  order_type?: string | null;
+  cancelled_quantity?: number | null;
+  cancel_revision?: number | null;
+  scheduling_ack_revision?: number | null;
+  /** enrich 计算字段 */
+  days?: number | null;
+  output_ratio?: number | null;
+  processing_output_value?: number | null;
+  sales_output_value?: number | null;
+  holiday_days?: number | null;
+  allocated_quantity?: number | null;
+  unscheduled_quantity?: number | null;
+  closing_processing_value?: number | null;
+  cancel_pending?: boolean;
 }
 
 function toDateOnly(value: unknown): Date | null {
@@ -85,12 +125,7 @@ export function enrichStyleForScheduling(
 }
 
 export function isUnscheduled(row: StyleRow): boolean {
-  return isAwaitingSchedule(row as StyleRow & {
-    parent_style_id?: unknown;
-    scheduling_zone?: string | null;
-    group_name?: string | null;
-    unscheduled_quantity?: number;
-  });
+  return isAwaitingSchedule(row);
 }
 
 export const EDITABLE_STYLE_FIELDS = [

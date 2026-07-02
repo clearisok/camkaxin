@@ -81,7 +81,7 @@ export async function loadUserFieldPermissions(
   isSuperAdmin: boolean,
   roles: string[],
 ): Promise<FieldPermissionMap> {
-  if (userHasFullFieldAccess({ isSuperAdmin, roles, fieldPermissions: {} })) {
+  if (userHasFullFieldAccess({ isSuperAdmin, roles })) {
     return {};
   }
 

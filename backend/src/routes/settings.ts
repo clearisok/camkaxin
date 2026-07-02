@@ -120,15 +120,6 @@ router.delete('/templates/:id', async (req: Request, res: Response) => {
 
 router.get('/early-warning-export-templates', async (_req: Request, res: Response) => {
   try {
-    const data = await listEarlyWarningExportTemplates();
-    res.json({ data });
-  } catch (err) {
-    res.status(400).json({ error: String(err) });
-  }
-});
-
-router.get('/early-warning-export-templates', async (_req: Request, res: Response) => {
-  try {
     const data = await listExportTemplates('early_warning');
     res.json({ data });
   } catch (err) {

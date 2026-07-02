@@ -25,8 +25,10 @@ export function periodDayCount(startYmd: string, endYmd: string): number {
 }
 
 export function normalizePeriod(start: unknown, end?: unknown): DatePeriod {
-  const startYmd = toYmdBeijing(start as string | Date);
-  const endYmd = toYmdBeijing(end != null ? (end as string | Date) : start);
+  const startInput = start as string | Date | null | undefined;
+  const endInput = (end != null ? end : start) as string | Date | null | undefined;
+  const startYmd = toYmdBeijing(startInput);
+  const endYmd = toYmdBeijing(endInput);
   if (!startYmd || !endYmd) throw new Error('无效的日期');
   if (startYmd > endYmd) throw new Error('开始日期不能晚于结束日期');
   return { start_date: startYmd, end_date: endYmd };

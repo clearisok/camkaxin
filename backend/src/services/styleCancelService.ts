@@ -165,8 +165,8 @@ export async function getStyleWithCancelFlags(id: number): Promise<(StyleRow & {
     cancel_pending: computeCancelPending({
       ...enriched,
       parent_allocated: allocated,
-      parent_quantity: enriched.quantity,
-      parent_cancel_revision: enriched.cancel_revision,
+      parent_quantity: enriched.quantity ?? undefined,
+      parent_cancel_revision: enriched.cancel_revision ?? undefined,
     }),
   };
 }
