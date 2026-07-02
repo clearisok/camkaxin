@@ -1,0 +1,11 @@
+.page {
+  padding-top: var(--sp-12);
+}
+
+.panel {
+  padding: var(--sp-16) !important;
+}
+
+.panel :global(.ant-form-item) {
+  margin-bottom: 0;
+}

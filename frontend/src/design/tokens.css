@@ -1,0 +1,64 @@
+/**
+ * Design Tokens — CSS 变量（唯一样式数值出口）
+ */
+
+:root {
+  /* Spacing */
+  --sp-2: 2px;
+  --sp-8: 8px;
+  --sp-12: 12px;
+  --sp-16: 16px;
+  --sp-20: 20px;
+  --sp-24: 24px;
+
+  /* Typography */
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.6;
+
+  /* Colors */
+  --color-primary: #2563eb;
+  --color-success: #52c41a;
+  --color-warning: #faad14;
+  --color-danger: #ff4d4f;
+  --color-text-primary: rgba(0, 0, 0, 0.88);
+  --color-text-secondary: rgba(0, 0, 0, 0.65);
+  --color-text-muted: rgba(0, 0, 0, 0.45);
+  --color-border: #d9d9d9;
+  --color-bg-subtle: #fafafa;
+  --color-bg-container: #ffffff;
+  --color-bg-layout: #f3f4f6;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Layout (semantic widths) */
+  --kpi-item-width: 120px;
+  --kpi-item-width-wide: 260px;
+  --hero-image-size: 96px;
+  --stat-card-min-width: 108px;
+  --layout-thumb-column: 112px;
+  --control-height: 40px;
+
+  /* Legacy aliases — migrate gradually */
+  --brand-primary: var(--color-primary);
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
+  --surface-card: var(--color-bg-container);
+  --border-default: var(--color-border);
+  --brand-bg: var(--color-bg-layout);
+}

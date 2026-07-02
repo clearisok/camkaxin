@@ -1,6 +1,7 @@
 import { Button } from 'antd';
 import FileUpload from '@/components/FileUpload';
 import AttachmentPreviewList from '@/components/AttachmentPreviewList';
+import styles from './StyleImageUpload.module.css';
 
 interface StyleImageUploadProps {
   value?: string;
@@ -23,11 +24,11 @@ export default function StyleImageUpload({
 
   if (readOnly || summary) {
     return (
-      <div className={`style-image-summary-box${value ? ' has-image' : ''}`}>
+      <div className={`${styles.summaryBox}${value ? ` ${styles.summaryBoxHasImage}` : ''}`}>
         {value ? (
           <AttachmentPreviewList paths={[value]} variant={previewVariant} size={previewSize} />
         ) : (
-          <span className="style-image-summary-placeholder">暂无图片</span>
+          <span className={styles.placeholder}>暂无图片</span>
         )}
       </div>
     );

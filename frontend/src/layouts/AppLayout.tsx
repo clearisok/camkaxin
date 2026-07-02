@@ -54,9 +54,7 @@ function isStyleDetailPath(pathname: string): boolean {
 }
 
 function resolvePageTitle(pathname: string): string {
-  if (pathname.startsWith('/quotations/new')) return '新建报价单';
-  if (pathname.match(/^\/quotations\/\d+\/edit$/)) return '编辑报价单';
-  if (pathname.match(/^\/quotations\/\d+$/)) return '报价单详情';
+  if (pathname.startsWith('/quotations/new') || /^\/quotations\/\d+/.test(pathname)) return '';
   if (pathname.startsWith('/scheduling/styles/new')) return '新建款式';
   if (isStyleDetailPath(pathname)) return '';
   const matched = NAV_KEYS.find((key) => key !== '/' && pathname.startsWith(key));
@@ -270,7 +268,6 @@ const AppMain = memo(function AppMain() {
     <Layout className="h-screen flex flex-col app-main-layout">
       <Header className={`app-top-header${showSchedulingTabs ? ' has-view-switcher' : ''}`}>
         <div className="app-header-inner">
-          <SidebarToggle />
           {headerActions.back && headerActions.onBack && (
             <Button
               icon={<ArrowLeftOutlined />}
@@ -280,6 +277,7 @@ const AppMain = memo(function AppMain() {
               返回
             </Button>
           )}
+          <SidebarToggle />
           <div className="app-header-leading">
             {showPageTitle && <h1 className="app-header-title">{pageTitle}</h1>}
             {showSchedulingTabs && (
@@ -288,30 +286,32 @@ const AppMain = memo(function AppMain() {
               </div>
             )}
           </div>
-          {(headerActions.history || headerActions.save) && (
-            <div className="app-header-actions">
-              {headerActions.history && headerActions.onHistory && (
-                <Button icon={<HistoryOutlined />} onClick={headerActions.onHistory}>
-                  变更历史
-                </Button>
-              )}
-              {headerActions.save && headerActions.onSave && (
-                <Button
-                  type="primary"
-                  icon={<SaveOutlined />}
-                  loading={headerActions.saving}
-                  onClick={headerActions.onSave}
-                >
-                  保存
-                </Button>
-              )}
-            </div>
-          )}
-          <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }} placement="bottomRight">
-            <Button type="text" className="app-header-user" icon={<UserOutlined />}>
-              {user?.displayName || user?.username || '用户'}
-            </Button>
-          </Dropdown>
+          <div className="app-header-trailing">
+            {(headerActions.history || headerActions.save) && (
+              <div className="app-header-actions">
+                {headerActions.history && headerActions.onHistory && (
+                  <Button icon={<HistoryOutlined />} onClick={headerActions.onHistory}>
+                    变更历史
+                  </Button>
+                )}
+                {headerActions.save && headerActions.onSave && (
+                  <Button
+                    type="primary"
+                    icon={<SaveOutlined />}
+                    loading={headerActions.saving}
+                    onClick={headerActions.onSave}
+                  >
+                    保存
+                  </Button>
+                )}
+              </div>
+            )}
+            <Dropdown menu={{ items: userMenuItems, onClick: handleUserMenuClick }} placement="bottomRight">
+              <Button type="text" className="app-header-user" icon={<UserOutlined />}>
+                {user?.displayName || user?.username || '用户'}
+              </Button>
+            </Dropdown>
+          </div>
         </div>
       </Header>
       <Content className="app-main-content flex-1 overflow-y-auto">

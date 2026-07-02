@@ -1,27 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  Form, Input, InputNumber, Button, message, Modal, Spin, Tag, Select, Collapse,
+  Form, Input, InputNumber, Button, message, Modal, Spin, Select, Collapse,
 } from 'antd';
 import dayjs from 'dayjs';
 import StyleImageUpload from '@/components/StyleImageUpload';
 import StyleHistoryDrawer from '@/components/scheduling/StyleHistoryDrawer';
 import { AutoFitInput, AutoFitInputNumber, AutoFitSelect, AutoFitDatePicker } from '@/components/AutoFitControl';
+import { DetailHero, KpiGrid, SectionCard, StatusPill } from '@/components/ui';
+import type { KpiGridItem } from '@/components/ui';
+import type { StatusTone } from '@/design/tokens';
+import DetailPageLayout from '@/layouts/templates/DetailPageLayout';
 import { getStyle, createStyle, updateStyle } from '@/api/styles';
 import { getBrands } from '@/api';
 import type { Brand } from '@/types';
-import type { StyleRecord } from '@/types/style';
+import type { ClosingOrderStatus, StyleRecord } from '@/types/style';
 import { CLOSING_MONTH_OPTIONS } from '@/types/style';
 import { enrichStyleClient, formatMoney } from '@/utils/styleCalculations';
 import { formatDateTimeBeijing } from '@/utils/beijingTime';
 import { formatOutputValueNumber } from '@/utils/earlyWarningExport';
 import {
-  CLOSING_ORDER_STATUS_COLORS,
   CLOSING_ORDER_STATUS_LABELS,
   getClosingOrderStatus,
 } from '@/utils/closingMonthView';
 import { inferZone, type SchedulingZone } from '@/utils/schedulingZone';
 import { useRegisterHeaderActions } from '@/contexts/HeaderActionsContext';
+import styles from './StyleForm.module.css';
 
 type BrandLinkedAgent = NonNullable<Brand['agents']>[number];
 
@@ -30,6 +34,20 @@ const ZONE_LABELS: Record<SchedulingZone, string> = {
   group: '生产组',
   outsource: '外发',
   offline: '已下线',
+};
+
+const ZONE_STATUS: Record<SchedulingZone, StatusTone> = {
+  wait: 'warning',
+  group: 'primary',
+  outsource: 'default',
+  offline: 'success',
+};
+
+const CLOSING_STATUS_TONE: Record<ClosingOrderStatus, StatusTone> = {
+  online: 'success',
+  offline: 'success',
+  outsourced: 'primary',
+  not_online: 'default',
 };
 
 const DETAIL_EDITABLE_FIELDS = [
@@ -65,105 +83,39 @@ function formatUnitPriceCny(v?: number | null): string {
   return `￥${formatMoney(v)}`;
 }
 
-function KpiCell({ label, value }: { label: string; value?: ReactNode }) {
-  return (
-    <div className="style-detail-kpi-cell">
-      <span className="style-detail-kpi-label">{label}</span>
-      <span className="style-detail-kpi-value">{value ?? '—'}</span>
-    </div>
-  );
-}
+function buildHeroKpiItems(
+  watched: StyleRecord | undefined,
+  formatDateField: (v: unknown) => string | null,
+): KpiGridItem[] {
+  const items: KpiGridItem[] = [
+    {
+      label: '数量',
+      value: watched?.quantity != null ? watched.quantity.toLocaleString('zh-CN') : undefined,
+    },
+    { label: '关联月份', value: watched?.closing_month },
+    {
+      label: '出货日',
+      value: watched?.required_shipping_date
+        ? formatDateField(watched.required_shipping_date) ?? '—'
+        : undefined,
+    },
+    { label: '加工单价', value: formatUnitPriceUsd(watched?.processing_unit_price) },
+  ];
 
-function StatCard({ title, value, unit }: { title: string; value: string; unit: string }) {
-  return (
-    <div className="style-detail-stat-card">
-      <span className="style-detail-stat-title">{title}</span>
-      <span className="style-detail-stat-value">{value}</span>
-      <span className="style-detail-stat-unit">{unit}</span>
-    </div>
-  );
-}
+  if (watched?.order_type !== 'processing') {
+    items.push({ label: '销售单价', value: formatUnitPriceCny(watched?.sales_price) });
+  }
 
-function StyleDetailHero({
-  watched,
-  summaryRow,
-  summaryStatus,
-  summaryZone,
-  formatDateField,
-}: {
-  watched: StyleRecord | undefined;
-  summaryRow: StyleRecord;
-  summaryStatus: ReturnType<typeof getClosingOrderStatus> | null;
-  summaryZone: SchedulingZone;
-  formatDateField: (v: unknown) => string | null;
-}) {
-  const subtitleParts = [
-    watched?.style_name && watched.style_name !== watched.style_number ? watched.style_name : null,
-    watched?.brand,
-    watched?.po_number,
-  ].filter(Boolean);
-
-  return (
-    <div className="style-detail-hero">
-      <StyleImageUpload value={watched?.style_image} onChange={() => {}} summary readOnly />
-      <div className="style-detail-hero-main">
-        <div className="style-detail-hero-head">
-          <div className="style-detail-hero-titles">
-            <h2 className="style-detail-hero-number">{watched?.style_number || '—'}</h2>
-            {subtitleParts.length > 0 && (
-              <p className="style-detail-hero-subtitle">{subtitleParts.join(' · ')}</p>
-            )}
-          </div>
-          <div className="style-detail-hero-tags">
-            {summaryStatus && (
-              <Tag color={CLOSING_ORDER_STATUS_COLORS[summaryStatus]}>
-                {CLOSING_ORDER_STATUS_LABELS[summaryStatus]}
-              </Tag>
-            )}
-            <Tag>{ZONE_LABELS[summaryZone]}</Tag>
-          </div>
-        </div>
-        <div className="style-detail-kpi-grid style-detail-kpi-grid-5">
-          <KpiCell
-            label="数量"
-            value={watched?.quantity != null ? watched.quantity.toLocaleString('zh-CN') : undefined}
-          />
-          <KpiCell label="关账月份" value={watched?.closing_month} />
-          <KpiCell
-            label="出货日"
-            value={watched?.required_shipping_date
-              ? formatDateField(watched.required_shipping_date) ?? '—'
-              : undefined}
-          />
-          <KpiCell label="加工单价" value={formatUnitPriceUsd(watched?.processing_unit_price)} />
-          {watched?.order_type !== 'processing' && (
-            <KpiCell label="销售单价" value={formatUnitPriceCny(watched?.sales_price)} />
-          )}
-          <KpiCell
-            label="订单类型"
-            value={watched?.order_type === 'processing' ? '加工' : '经销'}
-          />
-          <KpiCell label="面料结构" value={watched?.fabric_structure} />
-          <KpiCell label="业务员" value={watched?.salesperson} />
-          <KpiCell label="跟单员" value={watched?.order_follower} />
-          <KpiCell label="海外跟单" value={watched?.overseas_merchandiser} />
-          <KpiCell label="短溢装" value={watched?.short_over_shipment} />
-        </div>
-      </div>
-      <div className="style-detail-hero-stats">
-        <StatCard
-          title="加工产值"
-          value={formatOutputValueNumber(summaryRow.processing_output_value ?? undefined)}
-          unit="万美金"
-        />
-        <StatCard
-          title="销售产值"
-          value={formatOutputValueNumber(summaryRow.sales_output_value ?? undefined)}
-          unit="万元"
-        />
-      </div>
-    </div>
+  items.push(
+    { label: '订单类型', value: watched?.order_type === 'processing' ? '加工' : '经销' },
+    { label: '业务员', value: watched?.salesperson },
+    { label: '跟单员', value: watched?.order_follower },
+    { label: '海外跟单', value: watched?.overseas_merchandiser },
+    { label: '短溢装', value: watched?.short_over_shipment },
+    { label: '面料结构', value: watched?.fabric_structure, itemWidth: 'wide' },
   );
+
+  return items;
 }
 
 interface IdentityFieldsProps {
@@ -189,7 +141,7 @@ function IdentityFields({
   const orderType = Form.useWatch('order_type', form) ?? 'distribution';
 
   const fieldsGrid = (
-    <div className={`style-detail-grid${variant === 'detail' ? ' style-detail-grid-5' : ''}`}>
+    <div className={variant === 'detail' ? `${styles.grid} ${styles.gridFive}` : styles.grid}>
       <Form.Item
         name="style_number"
         label="款号"
@@ -226,8 +178,8 @@ function IdentityFields({
           ]}
         />
       </Form.Item>
-      <Form.Item name="closing_month" label="关账月份" className={fieldClass}>
-        <AutoFitSelect allowClear placeholder="关账月" options={closingMonthOptions} />
+      <Form.Item name="closing_month" label="关联月份" className={fieldClass}>
+        <AutoFitSelect allowClear placeholder="关联月份" options={closingMonthOptions} />
       </Form.Item>
       <Form.Item name="required_shipping_date" label="要求出货日" className={fieldClass}>
         <AutoFitDatePicker placeholder="出货日" />
@@ -261,7 +213,7 @@ function IdentityFields({
         <AutoFitInput placeholder="短溢装" />
       </Form.Item>
       {variant === 'new' && (
-        <Form.Item name="style_image" label="款式图" className={`${fieldClass} style-detail-image-field`}>
+        <Form.Item name="style_image" label="款式图" className={`${fieldClass} ${styles.imageField}`}>
           <StyleImageFormField />
         </Form.Item>
       )}
@@ -270,9 +222,9 @@ function IdentityFields({
 
   if (variant === 'detail') {
     return (
-      <div className="style-detail-basic-edit">
+      <div className={styles.basicEdit}>
         {fieldsGrid}
-        <div className="style-detail-basic-image">
+        <div className={styles.basicImage}>
           <Form.Item name="style_image" label="款式图" className={fieldClass}>
             <StyleImageFormField compact />
           </Form.Item>
@@ -296,37 +248,17 @@ function StyleImageFormField({
   return <StyleImageUpload value={value} onChange={onChange ?? (() => {})} compact={compact} />;
 }
 
-function DetailSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="style-detail-section">
-      <h3 className="style-detail-section-title">{title}</h3>
-      {children}
-    </section>
-  );
-}
-
 function ReadOnlyMetric({
   label,
   value,
-  span,
 }: {
   label: string;
   value?: ReactNode;
-  span?: number;
 }) {
   return (
-    <div className={`style-detail-metric${span ? ` style-detail-metric-span-${span}` : ''}`}>
-      <span className="style-detail-metric-label">{label}</span>
-      <span className="style-detail-metric-value">{value ?? '—'}</span>
-    </div>
-  );
-}
-
-function StyleDetailInfoCard({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="style-detail-info-card">
-      <h3 className="style-detail-info-card-title">{title}</h3>
-      {children}
+    <div className={styles.metric}>
+      <span className={styles.metricLabel}>{label}</span>
+      <span className={styles.metricValue}>{value ?? '—'}</span>
     </div>
   );
 }
@@ -344,42 +276,44 @@ function StyleSchedulingReadOnlyPanel({
   loadedMeta: LoadedMeta | null;
   formatDateField: (v: unknown) => string | null;
 }) {
+  const schedulingItems: KpiGridItem[] = [
+    { label: '上线时间', value: formatDateField(data?.online_time) ?? '—' },
+    { label: '下线时间', value: formatDateField(data?.offline_time) ?? '—' },
+    { label: '所需天数', value: data?.required_days ?? '—' },
+    {
+      label: '假期天数',
+      value: loadedMeta?.holiday_days ?? summaryRow.holiday_days ?? '—',
+    },
+    { label: '首床时间', value: formatDateField(data?.first_bed_time) ?? '—' },
+    { label: '排入数量', value: data?.scheduled_output ?? '—' },
+    { label: '日均产量', value: data?.avg_daily_output ?? '—' },
+    { label: '产出比', value: summaryRow.output_ratio ?? '—' },
+    { label: '排单区位', value: ZONE_LABELS[summaryZone] },
+    { label: '日历天数', value: summaryRow.days ?? '—' },
+    { label: '排入组别', value: data?.group_name ?? '—' },
+    { label: '排单顺位', value: data?.sort_order ?? '—' },
+    { label: '已排数量', value: loadedMeta?.allocated_quantity ?? '—' },
+    { label: '未排数量', value: loadedMeta?.unscheduled_quantity ?? '—' },
+    { label: '排单备注', value: data?.scheduling_remarks, itemWidth: 'full' },
+  ];
+
+  const outsourceItems: KpiGridItem[] = [
+    { label: '是否外发', value: data?.is_outsourced ? '是' : '否' },
+    { label: '外发工厂', value: data?.outsourced_factory },
+    {
+      label: '外发单价',
+      value: data?.outsourced_price != null ? formatMoney(data.outsourced_price) : '—',
+    },
+  ];
+
   return (
     <>
-      <StyleDetailInfoCard title="排产进度">
-        <div className="style-detail-kpi-grid style-detail-kpi-grid-6">
-          <KpiCell label="上线时间" value={formatDateField(data?.online_time) ?? '—'} />
-          <KpiCell label="下线时间" value={formatDateField(data?.offline_time) ?? '—'} />
-          <KpiCell label="所需天数" value={data?.required_days ?? '—'} />
-          <KpiCell
-            label="假期天数"
-            value={loadedMeta?.holiday_days ?? summaryRow.holiday_days ?? '—'}
-          />
-          <KpiCell label="首床时间" value={formatDateField(data?.first_bed_time) ?? '—'} />
-          <KpiCell label="排入数量" value={data?.scheduled_output ?? '—'} />
-          <KpiCell label="日均产量" value={data?.avg_daily_output ?? '—'} />
-          <KpiCell label="产出比" value={summaryRow.output_ratio ?? '—'} />
-          <KpiCell label="排单区位" value={ZONE_LABELS[summaryZone]} />
-          <KpiCell label="日历天数" value={summaryRow.days ?? '—'} />
-          <KpiCell label="排入组别" value={data?.group_name ?? '—'} />
-          <KpiCell label="排单顺位" value={data?.sort_order ?? '—'} />
-          <KpiCell label="已排数量" value={loadedMeta?.allocated_quantity ?? '—'} />
-          <KpiCell label="未排数量" value={loadedMeta?.unscheduled_quantity ?? '—'} />
-          <div className="style-detail-kpi-cell-full">
-            <KpiCell label="排单备注" value={data?.scheduling_remarks} />
-          </div>
-        </div>
-      </StyleDetailInfoCard>
-      <StyleDetailInfoCard title="外发">
-        <div className="style-detail-kpi-grid style-detail-kpi-grid-6">
-          <KpiCell label="是否外发" value={data?.is_outsourced ? '是' : '否'} />
-          <KpiCell label="外发工厂" value={data?.outsourced_factory} />
-          <KpiCell
-            label="外发单价"
-            value={data?.outsourced_price != null ? formatMoney(data.outsourced_price) : '—'}
-          />
-        </div>
-      </StyleDetailInfoCard>
+      <SectionCard title="排产进度">
+        <KpiGrid items={schedulingItems} />
+      </SectionCard>
+      <SectionCard title="外发">
+        <KpiGrid items={outsourceItems} />
+      </SectionCard>
     </>
   );
 }
@@ -732,7 +666,7 @@ export default function StyleForm() {
     return <div className="flex justify-center items-center h-96"><Spin size="large" /></div>;
   }
 
-  const fieldClass = 'style-detail-field';
+  const fieldClass = styles.field;
 
   const identityFieldsProps: IdentityFieldsProps = {
     fieldClass,
@@ -744,44 +678,73 @@ export default function StyleForm() {
     variant: isNew ? 'new' : 'detail',
   };
 
+  const heroSubtitleParts = [
+    heroStyle?.style_name && heroStyle.style_name !== heroStyle.style_number ? heroStyle.style_name : null,
+    heroStyle?.brand,
+    heroStyle?.po_number,
+  ].filter(Boolean);
+
+  const detailHero = !isNew ? (
+    <DetailHero
+      image={<StyleImageUpload value={heroStyle?.style_image} onChange={() => {}} summary readOnly />}
+      title={heroStyle?.style_number || '—'}
+      subtitle={heroSubtitleParts.length > 0 ? heroSubtitleParts.join(' · ') : undefined}
+      tags={(
+        <>
+          {summaryStatus && (
+            <StatusPill status={CLOSING_STATUS_TONE[summaryStatus]}>
+              {CLOSING_ORDER_STATUS_LABELS[summaryStatus]}
+            </StatusPill>
+          )}
+          <StatusPill status={ZONE_STATUS[summaryZone]}>{ZONE_LABELS[summaryZone]}</StatusPill>
+        </>
+      )}
+      kpiItems={buildHeroKpiItems(heroStyle, formatDateField)}
+      stats={[
+        {
+          label: '加工产值',
+          value: formatOutputValueNumber(summaryRow.processing_output_value ?? undefined),
+          unit: '万美金',
+          variant: 'default',
+        },
+        {
+          label: '销售产值',
+          value: formatOutputValueNumber(summaryRow.sales_output_value ?? undefined),
+          unit: '万元',
+          variant: 'success',
+        },
+      ]}
+    />
+  ) : undefined;
+
   return (
-    <div className="page-container style-detail-page">
+    <div className="page-container">
       <Form
         form={form}
         layout="vertical"
         initialValues={emptyForm()}
-        className="style-detail-form"
+        className={styles.form}
       >
-        <div className="card-panel style-detail-panel">
-          {!isNew && (
-            <StyleDetailHero
-              watched={heroStyle}
-              summaryRow={summaryRow}
-              summaryStatus={summaryStatus}
-              summaryZone={summaryZone}
-              formatDateField={formatDateField}
-            />
-          )}
-
+        <DetailPageLayout hero={detailHero}>
           {isNew ? (
-            <DetailSection title="基本信息">
+            <SectionCard title="基本信息" flush>
               <IdentityFields {...identityFieldsProps} />
-            </DetailSection>
+            </SectionCard>
           ) : (
             <Collapse
               ghost
-              className="style-detail-basic-collapse"
+              className={styles.basicCollapse}
               items={[{
                 key: 'basic',
-                label: '基本信息（展开编辑款号、品牌、关账月等）',
+                label: '基本信息（展开编辑款号、品牌、关联月份等）',
                 forceRender: true,
                 children: <IdentityFields {...identityFieldsProps} />,
               }]}
             />
           )}
 
-          <DetailSection title="物料">
-            <div className="style-detail-material-grid">
+          <SectionCard title="物料" className={styles.sectionMaterial}>
+            <div className={styles.materialGrid}>
               <Form.Item name="fabric_readiness" label="面料进度" className={fieldClass}>
                 <Input.TextArea placeholder="面料进度" autoSize={{ minRows: 1, maxRows: 3 }} />
               </Form.Item>
@@ -795,23 +758,23 @@ export default function StyleForm() {
                 <Input.TextArea placeholder="备注" autoSize={{ minRows: 1, maxRows: 3 }} />
               </Form.Item>
             </div>
-          </DetailSection>
+          </SectionCard>
 
           {isNew ? (
             <>
-              <DetailSection title="价格">
-                <div className="style-detail-grid style-detail-grid-6">
+              <SectionCard title="价格">
+                <div className={`${styles.grid} ${styles.gridSix}`}>
                   <Form.Item label="加工产值" className={fieldClass}>
-                    <div className="style-detail-readonly">{formatMoney(summaryRow.processing_output_value)}</div>
+                    <div className={styles.readonly}>{formatMoney(summaryRow.processing_output_value)}</div>
                   </Form.Item>
                   <Form.Item label="销售产值" className={fieldClass}>
-                    <div className="style-detail-readonly">{formatMoney(summaryRow.sales_output_value)}</div>
+                    <div className={styles.readonly}>{formatMoney(summaryRow.sales_output_value)}</div>
                   </Form.Item>
                 </div>
-              </DetailSection>
+              </SectionCard>
 
-              <DetailSection title="排产进度">
-                <div className="style-detail-grid style-detail-grid-6">
+              <SectionCard title="排产进度">
+                <div className={`${styles.grid} ${styles.gridSix}`}>
                   <Form.Item name="online_time" label="上线时间" className={fieldClass}>
                     <AutoFitDatePicker placeholder="上线" />
                   </Form.Item>
@@ -836,14 +799,14 @@ export default function StyleForm() {
                   <Form.Item name="sort_order" label="排单顺位" className={fieldClass}>
                     <InputNumber className="w-full" min={0} precision={0} />
                   </Form.Item>
-                  <Form.Item name="scheduling_remarks" label="排单备注" className={`${fieldClass} style-detail-span-3`}>
+                  <Form.Item name="scheduling_remarks" label="排单备注" className={`${fieldClass} ${styles.spanThree}`}>
                     <Input.TextArea placeholder="排单备注" autoSize={{ minRows: 1, maxRows: 2 }} />
                   </Form.Item>
                 </div>
-              </DetailSection>
+              </SectionCard>
 
-              <DetailSection title="外发">
-                <div className="style-detail-grid style-detail-grid-6">
+              <SectionCard title="外发">
+                <div className={`${styles.grid} ${styles.gridSix}`}>
                   <Form.Item name="is_outsourced" label="是否外发" className={fieldClass}>
                     <Select options={yesNoOptions} />
                   </Form.Item>
@@ -854,7 +817,7 @@ export default function StyleForm() {
                     <InputNumber className="w-full" min={0} step={0.01} precision={2} />
                   </Form.Item>
                 </div>
-              </DetailSection>
+              </SectionCard>
             </>
           ) : (
             <StyleSchedulingReadOnlyPanel
@@ -867,8 +830,8 @@ export default function StyleForm() {
           )}
 
           {!isNew && loadedMeta && (
-            <DetailSection title="系统信息">
-              <div className="style-detail-grid style-detail-grid-6 style-detail-system">
+            <SectionCard title="系统信息">
+              <div className={`${styles.grid} ${styles.gridSix} ${styles.systemGrid}`}>
                 <ReadOnlyMetric label="ID" value={loadedMeta.id} />
                 <ReadOnlyMetric
                   label="母款"
@@ -892,9 +855,9 @@ export default function StyleForm() {
                   value={loadedMeta.updated_at ? formatDateTimeBeijing(loadedMeta.updated_at) : '—'}
                 />
               </div>
-            </DetailSection>
+            </SectionCard>
           )}
-        </div>
+        </DetailPageLayout>
       </Form>
 
       <Modal

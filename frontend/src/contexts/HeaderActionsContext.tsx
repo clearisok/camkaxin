@@ -3,6 +3,7 @@ import {
   useContext,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -39,10 +40,12 @@ export function useHeaderActionsConfig(): HeaderActionsConfig {
 
 export function useRegisterHeaderActions(config: HeaderActionsConfig) {
   const setConfig = useContext(HeaderActionsContext)?.setConfig;
+  const configRef = useRef(config);
+  configRef.current = config;
 
   useLayoutEffect(() => {
     if (!setConfig) return;
-    setConfig(config);
+    setConfig(configRef.current);
     return () => setConfig({});
   }, [
     setConfig,
@@ -51,7 +54,6 @@ export function useRegisterHeaderActions(config: HeaderActionsConfig) {
     config.history,
     config.onHistory,
     config.save,
-    config.onSave,
     config.saving,
   ]);
 }

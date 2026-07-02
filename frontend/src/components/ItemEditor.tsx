@@ -1,11 +1,12 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, type MouseEvent } from 'react';
 import {
-  Input, InputNumber, Select, Button, Table, Collapse, Space, Modal, Tag, Spin, AutoComplete,
+  Input, InputNumber, Select, Button, Table, Collapse, Space, Modal, Tag, Spin, AutoComplete, message,
 } from 'antd';
-import { PlusOutlined, DeleteOutlined, BranchesOutlined, LineChartOutlined } from '@ant-design/icons';
-import type { QuotationItem, Fabric, Accessory, QuantityTier } from '@/types';
+import { PlusOutlined, DeleteOutlined, BranchesOutlined } from '@ant-design/icons';
+import type { QuotationItem, Fabric, Accessory } from '@/types';
 import { createEmptyFabric, createEmptyAccessory, UNIT_LABELS } from '@/types';
 import { calcItemCost, calcGrossWidth, calcNetWidth, calcFabricConsumption, calcAccessoryAmount } from '@/utils/calculation';
+import { getVersionButtonStyle, type VersionRowDraft } from '@/utils/quotationVersionGroups';
 import { toNum } from '@/utils/normalize';
 import CostSummary from '@/components/CostSummary';
 import FileUpload from '@/components/FileUpload';
@@ -26,8 +27,10 @@ import {
 const TABLE_HEADER_COMPONENTS = { header: { cell: ResizableTableHeader } };
 
 interface ItemEditorProps {
-  item: QuotationItem;
-  index: number;
+  groupKey: string;
+  itemIndices: number[];
+  items: QuotationItem[];
+  productCode?: string;
   exchangeRate: number;
   currency: 'RMB' | 'USD';
   profitMargin: number;
@@ -35,20 +38,42 @@ interface ItemEditorProps {
   accessoryOptions: Array<{ value: number; label: string; data: Accessory; use_count?: number }>;
   defaultWastage?: number;
   optionsReady?: boolean;
-  onChange: (item: QuotationItem) => void;
-  onRemove: () => void;
+  onUpdateItem: (index: number, item: QuotationItem) => void;
+  onRemoveVersion: (index: number) => void;
+  onAddVersions: (sourceIndex: number, rows: VersionRowDraft[]) => void;
   readOnly?: boolean;
 }
 
 export default function ItemEditor({
-  item, index, exchangeRate, currency, profitMargin,
-  fabricOptions, accessoryOptions, defaultWastage = 5, optionsReady = true,
-  onChange, onRemove, readOnly,
+  groupKey,
+  itemIndices,
+  items,
+  productCode = '',
+  exchangeRate,
+  currency,
+  profitMargin,
+  fabricOptions,
+  accessoryOptions,
+  defaultWastage = 5,
+  optionsReady = true,
+  onUpdateItem,
+  onRemoveVersion,
+  onAddVersions,
+  readOnly,
 }: ItemEditorProps) {
-  const [tierModal, setTierModal] = useState(false);
-  const [tiers, setTiers] = useState<QuantityTier[]>(item.quantity_tiers || []);
+  const [activeItemIndex, setActiveItemIndex] = useState(() => itemIndices[0] ?? 0);
+  const [versionModal, setVersionModal] = useState(false);
+  const [versionRows, setVersionRows] = useState<VersionRowDraft[]>([{ version_label: '' }]);
   const [fabricColWidths, setFabricColWidths] = useState(loadFabricColumnWidths);
   const [accessoryColWidths, setAccessoryColWidths] = useState(loadAccessoryColumnWidths);
+
+  useEffect(() => {
+    if (!itemIndices.includes(activeItemIndex)) {
+      setActiveItemIndex(itemIndices[0] ?? 0);
+    }
+  }, [itemIndices, activeItemIndex]);
+
+  const item = items[activeItemIndex] ?? items[itemIndices[0]];
 
   const handleFabricColResize = useCallback((key: string, width: number) => {
     setFabricColWidths((prev) => ({ ...prev, [key]: width }));
@@ -85,6 +110,9 @@ export default function ItemEditor({
   });
 
   const cost = useMemo(() => {
+    if (!item) {
+      return { fabricTotal: 0, accessoryTotal: 0, laborRmb: 0, subtotalRmb: 0, finalPrice: 0, fabrics: [], accessories: [] };
+    }
     return calcItemCost(
       {
         laborCostUsd: item.labor_cost_usd || 0,
@@ -103,7 +131,10 @@ export default function ItemEditor({
     );
   }, [item, exchangeRate, currency, profitMargin]);
 
-  const update = (patch: Partial<QuotationItem>) => onChange({ ...item, ...patch });
+  const update = (patch: Partial<QuotationItem>) => {
+    if (!item) return;
+    onUpdateItem(activeItemIndex, { ...item, ...patch });
+  };
 
   const itemAttachments = useMemo(
     () => [
@@ -431,19 +462,125 @@ export default function ItemEditor({
   const fabricScrollX = useMemo(() => estimateItemEditorScrollX(fabricColumnsResized), [fabricColumnsResized]);
   const accessoryScrollX = useMemo(() => estimateItemEditorScrollX(accessoryColumnsResized), [accessoryColumnsResized]);
 
+  const productCodeTrimmed = productCode.trim();
+  const versionItems = itemIndices.map((idx) => ({ index: idx, data: items[idx] })).filter((v) => v.data);
+
+  const openVersionModal = () => {
+    const current = items[activeItemIndex];
+    const hasQty = (current?.quantity ?? 0) > 0;
+    const hasLabor = (current?.labor_cost_usd ?? 0) > 0;
+    setVersionRows([{
+      version_label: '',
+      quantity: hasQty ? current?.quantity : undefined,
+      labor_cost_usd: hasLabor ? current?.labor_cost_usd : undefined,
+    }]);
+    setVersionModal(true);
+  };
+
+  const updateVersionRow = (rowIndex: number, patch: Partial<VersionRowDraft>) => {
+    setVersionRows((prev) => prev.map((row, i) => (i === rowIndex ? { ...row, ...patch } : row)));
+  };
+
+  const addVersionRow = () => {
+    setVersionRows((prev) => [...prev, { version_label: '' }]);
+  };
+
+  const removeVersionRow = (rowIndex: number) => {
+    setVersionRows((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== rowIndex)));
+  };
+
+  const submitVersions = () => {
+    if (versionRows.some((row) => !row.version_label.trim())) {
+      message.warning('版本标签为必填项');
+      return;
+    }
+
+    const rows = versionRows.map((row) => ({
+      version_label: row.version_label.trim(),
+      quantity: row.quantity,
+      labor_cost_usd: row.labor_cost_usd,
+    }));
+
+    onAddVersions(activeItemIndex, rows);
+    setVersionModal(false);
+  };
+
+  const switchVersion = (itemIndex: number, e: MouseEvent<HTMLElement>) => {
+    e.stopPropagation();
+    setActiveItemIndex(itemIndex);
+  };
+
   const header = (
-    <div className="flex items-center justify-between w-full pr-4">
-      <Space>
-        <span className="font-medium">明细行 {index + 1}</span>
-        {item.product_code && <Tag>{item.product_code}</Tag>}
-        {item.version_label && <Tag color="purple">{item.version_label}</Tag>}
-        {item.version && item.version > 1 && <Tag color="orange">V{item.version}</Tag>}
+    <div className="flex items-center w-full pr-4">
+      <Space wrap size={[8, 4]}>
+        {productCodeTrimmed ? <Tag color="blue">{productCodeTrimmed}</Tag> : null}
+        {productCodeTrimmed && versionItems.map(({ index: itemIndex, data }, versionIdx) => {
+          const label = data.version_label?.trim();
+          if (!label) return null;
+          const isActive = itemIndex === activeItemIndex;
+          return (
+            <Button
+              key={`${groupKey}-${itemIndex}`}
+              size="small"
+              className="version-switch-btn"
+              style={getVersionButtonStyle(versionIdx, isActive)}
+              onClick={(e) => switchVersion(itemIndex, e)}
+            >
+              {label}
+            </Button>
+          );
+        })}
       </Space>
-      <span className="text-brand-600 font-semibold">
-        {currency === 'USD' ? '$' : '¥'}{cost.finalPrice.toFixed(2)}
-      </span>
     </div>
   );
+
+  const priceLabel = (
+    <span className="text-brand-600 font-semibold tabular-nums">
+      {currency === 'USD' ? '$' : '¥'}{cost.finalPrice.toFixed(2)}
+    </span>
+  );
+
+  const quantityLaborShippingFields = (
+    <>
+      <FieldPermission fieldCode="item.quantity">
+        <div>
+          <label className="text-sm text-gray-500 mb-1 block">数量</label>
+          {readOnly ? <span>{item.quantity}</span> : (
+            <InputNumber size="small" className="w-full" value={item.quantity} onChange={(v) => update({ quantity: v || 0 })} min={0} />
+          )}
+        </div>
+      </FieldPermission>
+      <FieldPermission fieldCode="item.labor_cost_usd">
+        <div>
+          <label className="text-sm text-gray-500 mb-1 block">工价 (USD)</label>
+          {readOnly ? <span>${toNum(item.labor_cost_usd).toFixed(2)}</span> : (
+            <InputNumber size="small" className="w-full" value={item.labor_cost_usd} onChange={(v) => update({ labor_cost_usd: v || 0 })} min={0} step={0.01} prefix="$" />
+          )}
+          {!readOnly && (
+            <p className="text-xs text-gray-400 mt-1">
+              折算 RMB: ¥{(toNum(item.labor_cost_usd) * exchangeRate * 1.13).toFixed(2)}
+            </p>
+          )}
+        </div>
+      </FieldPermission>
+      <FieldPermission fieldCode="item.shipping_rmb">
+        <div>
+          <label className="text-sm text-gray-500 mb-1 block">运费 (RMB)</label>
+          {readOnly ? <span>¥{toNum(item.shipping_rmb).toFixed(2)}</span> : (
+            <InputNumber size="small" className="w-full" value={item.shipping_rmb} onChange={(v) => update({ shipping_rmb: v ?? 1 })} min={0} step={0.01} prefix="¥" />
+          )}
+        </div>
+      </FieldPermission>
+    </>
+  );
+
+  const versionActions = !readOnly ? (
+    <Button size="small" icon={<BranchesOutlined />} onClick={openVersionModal}>
+      多版本
+    </Button>
+  ) : null;
+
+  if (!item) return null;
 
   return (
     <>
@@ -451,77 +588,21 @@ export default function ItemEditor({
       defaultActiveKey={['1']}
       className="mb-4 bg-white rounded-xl shadow-card border border-gray-100 overflow-hidden"
       items={[{
-        key: '1',
+        key: groupKey,
         label: header,
-        extra: !readOnly && (
-          <Button type="text" danger size="small" onClick={(e) => { e.stopPropagation(); onRemove(); }}>
-            删除
-          </Button>
+        extra: (
+          <Space align="center" size="middle" onClick={(e) => e.stopPropagation()}>
+            {priceLabel}
+            {!readOnly && (
+              <Button type="text" danger size="small" onClick={(e) => { e.stopPropagation(); onRemoveVersion(activeItemIndex); }}>
+                删除
+              </Button>
+            )}
+          </Space>
         ),
         children: (
           <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
             <div className="xl:col-span-3 space-y-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <FieldPermission fieldCode="item.product_code">
-                  <div>
-                    <label className="text-sm text-gray-500 mb-1 block">款号</label>
-                    {readOnly ? <span>{item.product_code}</span> : (
-                      <Input value={item.product_code} onChange={(e) => update({ product_code: e.target.value })} />
-                    )}
-                  </div>
-                </FieldPermission>
-                <FieldPermission fieldCode="item.quantity">
-                  <div>
-                    <label className="text-sm text-gray-500 mb-1 block">数量</label>
-                    {readOnly ? <span>{item.quantity}</span> : (
-                      <InputNumber className="w-full" value={item.quantity} onChange={(v) => update({ quantity: v || 0 })} min={0} />
-                    )}
-                  </div>
-                </FieldPermission>
-                <FieldPermission fieldCode="item.labor_cost_usd">
-                  <div>
-                    <label className="text-sm text-gray-500 mb-1 block">工价 (USD)</label>
-                    {readOnly ? <span>${toNum(item.labor_cost_usd).toFixed(2)}</span> : (
-                      <InputNumber className="w-full" value={item.labor_cost_usd} onChange={(v) => update({ labor_cost_usd: v || 0 })} min={0} step={0.01} prefix="$" />
-                    )}
-                    {!readOnly && (
-                      <p className="text-xs text-gray-400 mt-1">
-                        折算 RMB: ¥{(toNum(item.labor_cost_usd) * exchangeRate * 1.13).toFixed(2)}
-                      </p>
-                    )}
-                  </div>
-                </FieldPermission>
-                <FieldPermission fieldCode="item.shipping_rmb">
-                  <div>
-                    <label className="text-sm text-gray-500 mb-1 block">运费 (RMB)</label>
-                    {readOnly ? <span>¥{toNum(item.shipping_rmb).toFixed(2)}</span> : (
-                      <InputNumber className="w-full" value={item.shipping_rmb} onChange={(v) => update({ shipping_rmb: v ?? 1 })} min={0} step={0.01} prefix="¥" />
-                    )}
-                  </div>
-                </FieldPermission>
-              </div>
-
-              {!readOnly && (
-                <Space>
-                  {!item.showVersionLabel && (
-                    <Button size="small" icon={<BranchesOutlined />} onClick={() => update({ showVersionLabel: true })}>
-                      多版本
-                    </Button>
-                  )}
-                  {item.showVersionLabel && (
-                    <Input
-                      placeholder="版本标签，如：彩条/素色"
-                      value={item.version_label}
-                      onChange={(e) => update({ version_label: e.target.value })}
-                      style={{ width: 200 }}
-                    />
-                  )}
-                  <Button size="small" icon={<LineChartOutlined />} onClick={() => { setTiers(item.quantity_tiers || []); setTierModal(true); }}>
-                    阶梯价
-                  </Button>
-                </Space>
-              )}
-
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm font-medium text-gray-700">面料明细</span>
@@ -575,7 +656,15 @@ export default function ItemEditor({
               </div>
             </div>
 
-            <div>
+            <div className="item-editor-side-panel">
+              <div className="item-editor-side-fields mb-4 space-y-4">
+                <div className="item-editor-side-field-row">
+                  {quantityLaborShippingFields}
+                </div>
+                <div className="item-editor-side-action-row">
+                  {versionActions}
+                </div>
+              </div>
               <CostSummary
                 fabricTotal={cost.fabricTotal}
                 accessoryTotal={cost.accessoryTotal}
@@ -594,24 +683,58 @@ export default function ItemEditor({
     />
 
     <Modal
-      title="数量阶梯价"
-      open={tierModal}
-      onOk={() => { update({ quantity_tiers: tiers }); setTierModal(false); }}
-      onCancel={() => setTierModal(false)}
-      width={600}
+      title="创建多版本"
+      open={versionModal}
+      onCancel={() => setVersionModal(false)}
+      onOk={submitVersions}
+      okText="确定"
+      cancelText="取消"
+      width={560}
+      destroyOnClose
     >
-      {tiers.map((tier, i) => (
-        <Space key={i} className="mb-2 w-full" align="center">
-          <InputNumber placeholder="最小数量" value={tier.min_qty} onChange={(v) => { const t = [...tiers]; t[i] = { ...t[i], min_qty: v || 0 }; setTiers(t); }} />
-          <span>-</span>
-          <InputNumber placeholder="最大数量" value={tier.max_qty} onChange={(v) => { const t = [...tiers]; t[i] = { ...t[i], max_qty: v || undefined }; setTiers(t); }} />
-          <InputNumber placeholder="价格" value={tier.price} onChange={(v) => { const t = [...tiers]; t[i] = { ...t[i], price: v || 0 }; setTiers(t); }} prefix="¥" />
-          <Button danger type="text" icon={<DeleteOutlined />} onClick={() => setTiers(tiers.filter((_, j) => j !== i))} />
-        </Space>
-      ))}
-      <Button type="dashed" block icon={<PlusOutlined />} onClick={() => setTiers([...tiers, { min_qty: 0, price: 0 }])}>
-        添加阶梯
-      </Button>
+      <div className="version-modal-table">
+        <div className="version-modal-head">
+          <span className="required">版本标签</span>
+          <span>数量</span>
+          <span>版本工价 (USD)</span>
+          <span />
+        </div>
+        {versionRows.map((row, rowIndex) => (
+          <div key={rowIndex} className="version-modal-row">
+            <Input
+              placeholder="如：彩条 / 素色"
+              value={row.version_label}
+              onChange={(e) => updateVersionRow(rowIndex, { version_label: e.target.value })}
+            />
+            <InputNumber
+              className="w-full"
+              min={0}
+              placeholder="可选"
+              value={row.quantity}
+              onChange={(v) => updateVersionRow(rowIndex, { quantity: v ?? undefined })}
+            />
+            <InputNumber
+              className="w-full"
+              min={0}
+              step={0.01}
+              prefix="$"
+              placeholder="可选"
+              value={row.labor_cost_usd}
+              onChange={(v) => updateVersionRow(rowIndex, { labor_cost_usd: v ?? undefined })}
+            />
+            <Button
+              type="text"
+              danger
+              icon={<DeleteOutlined />}
+              disabled={versionRows.length <= 1}
+              onClick={() => removeVersionRow(rowIndex)}
+            />
+          </div>
+        ))}
+        <Button type="dashed" block icon={<PlusOutlined />} className="mt-3" onClick={addVersionRow}>
+          添加版本
+        </Button>
+      </div>
     </Modal>
     </>
   );

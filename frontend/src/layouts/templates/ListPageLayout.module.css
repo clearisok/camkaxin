@@ -1,0 +1,11 @@
+.page {
+  min-width: 0;
+}
+
+.filters {
+  margin-bottom: var(--sp-16);
+}
+
+.content {
+  min-width: 0;
+}

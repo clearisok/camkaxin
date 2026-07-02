@@ -80,6 +80,8 @@ export interface QuotationItem {
   pattern_files?: string[];
   layout_files?: string[];
   showVersionLabel?: boolean;
+  /** 客户端版本分组，不提交后端 */
+  version_group_key?: string;
 }
 
 export interface Quotation {
@@ -105,6 +107,8 @@ export interface Quotation {
   accessory_total?: number;
   labor_rmb?: number;
   product_codes?: string;
+  /** 报价单级款号（保存时同步至明细行） */
+  product_code?: string;
   total_quantity?: number;
   list_style_image?: string;
   items?: QuotationItem[];
@@ -112,10 +116,12 @@ export interface Quotation {
 
 export const UNIT_LABELS: Record<string, string> = { meter: '米', kg: '千克' };
 
+import { newVersionGroupKey } from '@/utils/quotationVersionGroups';
+
 export function createEmptyItem(defaultWastage = 5): QuotationItem {
   return {
-    product_code: '',
     version_label: '',
+    version_group_key: newVersionGroupKey(),
     quantity: 0,
     labor_cost_usd: 0,
     other_cost_rmb: 0,

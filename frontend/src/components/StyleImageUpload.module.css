@@ -1,0 +1,27 @@
+.summaryBox {
+  width: var(--hero-image-size);
+  height: var(--hero-image-size);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.summaryBoxHasImage :global(img),
+.summaryBoxHasImage :global(.ant-image-img) {
+  width: var(--hero-image-size) !important;
+  height: var(--hero-image-size) !important;
+  object-fit: cover;
+}
+
+.placeholder {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: var(--sp-8);
+  line-height: var(--line-height-normal);
+}
