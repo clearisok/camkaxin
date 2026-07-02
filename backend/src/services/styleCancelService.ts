@@ -16,10 +16,10 @@ export interface CancelStyleInput {
 
 export function computeCancelPending(
   row: StyleRow & {
-    scheduling_ack_revision?: number;
-    parent_cancel_revision?: number;
-    parent_quantity?: number;
-    parent_allocated?: number;
+    scheduling_ack_revision?: number | null;
+    parent_cancel_revision?: number | null;
+    parent_quantity?: number | null;
+    parent_allocated?: number | null;
   },
 ): boolean {
   const parentId = row.parent_style_id != null ? Number(row.parent_style_id) : Number(row.id);
@@ -145,8 +145,6 @@ export async function cancelStyleOrder(
 
 export async function getStyleWithCancelFlags(id: number): Promise<(StyleRow & {
   cancel_pending?: boolean;
-  allocated_quantity?: number;
-  unscheduled_quantity?: number;
 }) | null> {
   const res = await query('SELECT * FROM styles WHERE id = $1', [id]);
   if (!res.rows[0]) return null;

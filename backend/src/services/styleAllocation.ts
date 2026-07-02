@@ -53,7 +53,7 @@ export function isAwaitingSchedule(row: {
   parent_style_id?: unknown;
   scheduling_zone?: string | null;
   group_name?: string | null;
-  unscheduled_quantity?: number;
+  unscheduled_quantity?: number | null;
 }): boolean {
   if (row.parent_style_id != null) return false;
   if (inferZoneFromRow(row) !== 'wait') return false;
