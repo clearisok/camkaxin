@@ -19,15 +19,18 @@
 项目 Docker 数据库映射到本机 **5433** 端口（容器内仍为 5432），用于避免与 Windows 本机 PostgreSQL 默认的 **5432** 端口冲突。
 
 ```bash
-docker compose up -d
+docker ps -a | grep jiankai-postgres   # 已有容器则 docker start，无需重复 up -d
+docker compose up -d                  # 仅首次或容器不存在时
 ```
 
-若提示容器名 `jiankai-postgres` 已存在，可先删除旧容器再启动：
+若提示容器名 `jiankai-postgres` 已被占用，说明容器已存在，**先启动而非删除**：
 
 ```bash
-docker rm -f jiankai-postgres
-docker compose up -d
+docker ps -a | grep jiankai-postgres
+docker start jiankai-postgres        # 或：docker compose start
 ```
+
+仅当必须重建容器时：`docker rm -f jiankai-postgres && docker compose up -d`（数据卷一般保留）。详见 **[服务器运维命令速查](#服务器运维命令速查)**。
 
 启动后可用 `docker ps` 确认端口映射为 `0.0.0.0:5433->5432/tcp`。
 
@@ -155,9 +158,204 @@ camkaxin/
 | `npm run db:migrate` | 执行增量迁移（**升级后必跑**） |
 | `npm run db:seed-scheduling` | 排产演示款式 |
 | `npm run db:seed-auth` | 用户与权限种子 |
-| `npm test` | 后端单元测试 |
+| `npm test` | 后端 + 前端单元/集成测试 |
+| `npm run test:backend` | 仅后端测试 |
+| `npm run test:frontend` | 仅前端测试 |
+| `npm run test:e2e` | Playwright 端到端测试（需数据库与 dev 服务） |
 
-## 计算规则
+## 服务器运维命令速查
+
+以下命令适用于 Linux 生产机（如宝塔 `/www/wwwroot/154.198.42.71` 或 `/opt/jiankai/camkaxin`）。**先将 `PROJECT_DIR` 换成你的实际项目路径。**
+
+```bash
+export PROJECT_DIR=/www/wwwroot/154.198.42.71
+cd "$PROJECT_DIR"
+```
+
+### 何时需要 `docker compose up -d`
+
+| 场景 | 是否需要 |
+|------|----------|
+| 首次部署 | ✅ 必须（创建数据库容器） |
+| 日常发版（`git pull` + `build` + `pm2 restart`） | ❌ 容器已在跑则不需要 |
+| 服务器重启后 | ⚠️ 先 `docker ps` 检查；容器未运行再执行 |
+| 仅 `npm run build:all` | ❌ 不需要（构建不连库） |
+
+### 首次部署 / 重新部署（全量）
+
+```bash
+cd "$PROJECT_DIR"
+
+# 1. 数据库（见下文「数据库问题」若报容器名冲突）
+docker compose up -d
+docker ps    # 确认 jiankai-postgres，端口 5433->5432
+
+# 2. 环境变量（首次必做）
+cp backend/.env.example backend/.env
+# 编辑 backend/.env：DATABASE_URL 端口 5433、CORS_ORIGIN、JWT_SECRET、ADMIN_INITIAL_PASSWORD 等
+
+# 3. 依赖与库表
+npm run install:all
+npm run db:init
+npm run db:seed
+npm run db:migrate
+npm run db:seed-auth
+# 可选：npm run db:seed-scheduling
+
+# 4. 构建
+npm run build:all
+
+# 5. 启动（PM2，首次）
+cd backend
+pm2 start dist/index.js --name jiankai-api
+pm2 save
+pm2 startup    # 按提示执行，实现开机自启
+
+# 6. 验证
+curl http://127.0.0.1:3001/api/health
+pm2 logs jiankai-api --lines 30
+```
+
+生产 `backend/.env` 关键项示例：
+
+```env
+PORT=3001
+DATABASE_URL=postgresql://jiankai:jiankai123@127.0.0.1:5433/jiankai_quotation
+TZ=Asia/Shanghai
+UPLOAD_DIR=./uploads
+CORS_ORIGIN=http://你的域名或IP
+STATIC_DIR=../frontend/dist
+JWT_SECRET=至少32位随机字符串
+ADMIN_INITIAL_PASSWORD=强密码
+```
+
+### 日常更新（已有环境，发新版）
+
+```bash
+cd "$PROJECT_DIR"
+
+# 先确认数据库在跑（不在跑则 docker start jiankai-postgres 或 docker compose up -d）
+docker ps | grep jiankai-postgres
+
+git pull
+npm run install:all
+npm run db:migrate
+npm run build:all
+
+pm2 restart jiankai-api --update-env
+```
+
+**一行版：**
+
+```bash
+cd /www/wwwroot/154.198.42.71 && git pull && npm run install:all && npm run db:migrate && npm run build:all && pm2 restart jiankai-api --update-env
+```
+
+### 服务器重启后
+
+```bash
+cd "$PROJECT_DIR"
+
+docker ps -a | grep jiankai-postgres
+# 若状态为 Exited：
+docker start jiankai-postgres
+# 或：
+docker compose start
+
+pm2 restart jiankai-api --update-env
+curl http://127.0.0.1:3001/api/health
+```
+
+### 数据库问题排查与修复
+
+**1. 检查容器状态**
+
+```bash
+docker ps -a | grep jiankai-postgres
+docker logs jiankai-postgres --tail 50
+docker port jiankai-postgres
+```
+
+| 状态 | 处理 |
+|------|------|
+| `Up` | 正常，无需 `docker compose up -d` |
+| `Exited` | `docker start jiankai-postgres` |
+| 不存在 | `docker compose up -d` |
+
+**2. 容器名冲突（`jiankai-postgres is already in use`）**
+
+表示同名容器已存在，**不要重复 `up -d` 创建**。先查状态：
+
+```bash
+docker ps -a | grep jiankai-postgres
+```
+
+- 已在跑或已停止 → `docker start jiankai-postgres` 或 `docker compose start`
+- 必须按当前 compose 重建容器时（会保留数据卷，一般不丢数据）：
+
+```bash
+docker rm -f jiankai-postgres
+cd "$PROJECT_DIR"
+docker compose up -d
+```
+
+> ⚠️ 切勿执行 `docker volume rm` 删除 `postgres_data`，否则会清空数据库。
+
+**3. 应用连不上库（`28P01` 密码错误 / 连接失败）**
+
+```bash
+# 确认 .env 端口为 5433（不是 5432）
+grep DATABASE_URL backend/.env
+
+# 确认容器与健康
+docker ps | grep jiankai-postgres
+docker exec jiankai-postgres pg_isready -U jiankai
+```
+
+`DATABASE_URL` 须为：`postgresql://jiankai:jiankai123@127.0.0.1:5433/jiankai_quotation`（密码若已改须与 `docker-compose.yml` 一致）。
+
+**4. 重新初始化库（⚠️ 会清空业务数据，仅空库或开发机）**
+
+```bash
+cd "$PROJECT_DIR"
+docker compose down    # 不删 volume 则数据仍在；要彻底清空需 docker volume rm（慎用）
+docker compose up -d
+npm run db:init
+npm run db:seed
+npm run db:migrate
+npm run db:seed-auth
+```
+
+**5. 备份与恢复**
+
+```bash
+# 备份
+docker exec jiankai-postgres pg_dump -U jiankai jiankai_quotation > backup_$(date +%F).sql
+tar -czf uploads_$(date +%F).tar.gz -C "$PROJECT_DIR/backend" uploads
+cp "$PROJECT_DIR/backend/.env" ~/jiankai.env.backup
+
+# 恢复（示例）
+cat backup_2026-07-03.sql | docker exec -i jiankai-postgres psql -U jiankai jiankai_quotation
+```
+
+**6. `build:all` 失败（与数据库无关时）**
+
+```bash
+node -v    # 建议 >= 20
+npm run install:all
+export NODE_OPTIONS="--max-old-space-size=2048"   # 内存不足时
+npm run build:all
+```
+
+### 部署后验证
+
+| 步骤 | 命令 | 预期 |
+|------|------|------|
+| 数据库 | `docker ps \| grep jiankai-postgres` | `Up`，`5433->5432` |
+| API | `curl http://127.0.0.1:3001/api/health` | `"status":"ok"` |
+| 进程 | `pm2 status` | `jiankai-api` online |
+| 日志 | `pm2 logs jiankai-api --lines 30` | 无持续报错 |
+
 
 ### 报价
 
@@ -218,7 +416,7 @@ camkaxin/
 
 ### Docker 提示容器名 `jiankai-postgres` 已被占用
 
-表示之前已创建过同名容器。可执行 `docker start jiankai-postgres` 直接启动；若需按当前 `docker-compose.yml` 重建（例如更换端口映射），则先 `docker rm -f jiankai-postgres` 再 `docker compose up -d`。删除容器不会删除 `postgres_data` 数据卷中的数据。
+表示同名容器**已存在**。先 `docker ps -a | grep jiankai-postgres`；若已停止则 `docker start jiankai-postgres`。完整说明见 **[数据库问题排查与修复](#数据库问题排查与修复)**。
 
 ### 关账功能报错或锁定无效
 
@@ -316,10 +514,13 @@ cd camkaxin
 
 ```bash
 cd /opt/jiankai/camkaxin
-docker compose up -d
-# CentOS 7 若无 compose 插件：docker-compose up -d
+docker ps -a | grep jiankai-postgres   # 已有容器则 docker start，无需重复 up -d
+docker compose up -d                  # 仅首次或容器不存在时
 
 docker ps   # 确认 jiankai-postgres 运行，端口 5433->5432
+```
+
+完整命令见 **[服务器运维命令速查](#服务器运维命令速查)**。
 ```
 
 #### 3. 配置生产环境变量
@@ -498,16 +699,18 @@ sudo firewall-cmd --reload
 
 ### 五、版本升级（已有环境）
 
-```bash
-cd /opt/jiankai/camkaxin
-git pull    # 或上传新代码覆盖
+与 **[服务器运维命令速查 → 日常更新](#日常更新已有环境发新版)** 相同：
 
+```bash
+cd /opt/jiankai/camkaxin   # 或 /www/wwwroot/154.198.42.71
+docker ps | grep jiankai-postgres
+
+git pull
 npm run install:all
 npm run db:migrate
 npm run build:all
 
-pm2 restart jiankai-api
-# 或：sudo systemctl restart jiankai-api
+pm2 restart jiankai-api --update-env
 ```
 
 ### 六、备份建议
@@ -526,6 +729,8 @@ cp /opt/jiankai/camkaxin/backend/.env ~/jiankai.env.backup
 ```
 
 ### 七、常见问题（CentOS）
+
+数据库与容器问题优先查阅 **[服务器运维命令速查 → 数据库问题排查与修复](#数据库问题排查与修复)**。
 
 **npm install 失败（Sharp / node-gyp）**
 
@@ -581,7 +786,11 @@ npm run start:prod
 ## 运行测试
 
 ```bash
-cd backend && npm test
+npm run install:all
+npm test                  # 后端 + 前端单元/集成测试
+npm run test:backend      # 仅后端（Vitest + supertest）
+npm run test:frontend     # 仅前端
+npm run test:e2e          # E2E（需数据库、默认账号 admin/admin123）
 ```
 
 ## 种子数据

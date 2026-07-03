@@ -3,14 +3,22 @@
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS brand_id INTEGER REFERENCES brands(id) ON DELETE SET NULL;
 
 -- 从 brand_agents 迁移（若业务员曾关联多个品牌，取 brand_id 最小的一条）
-UPDATE agents a
-SET brand_id = sub.brand_id
-FROM (
-  SELECT DISTINCT ON (agent_id) agent_id, brand_id
-  FROM brand_agents
-  ORDER BY agent_id, brand_id
-) sub
-WHERE a.id = sub.agent_id;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'brand_agents'
+  ) THEN
+    UPDATE agents a
+    SET brand_id = sub.brand_id
+    FROM (
+      SELECT DISTINCT ON (agent_id) agent_id, brand_id
+      FROM brand_agents
+      ORDER BY agent_id, brand_id
+    ) sub
+    WHERE a.id = sub.agent_id;
+  END IF;
+END $$;
 
 DROP TABLE IF EXISTS brand_agents;
 
