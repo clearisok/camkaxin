@@ -37,6 +37,7 @@ export function calcOutputRatio(scheduledOutput: unknown, avgDailyOutput: unknow
 }
 
 export function calcProcessingOutputValue(quantity: unknown, unitPrice: unknown): number | null {
+  if (quantity == null || unitPrice == null) return null;
   const q = Number(quantity);
   const p = Number(unitPrice);
   if (!Number.isFinite(q) || !Number.isFinite(p)) return null;
@@ -44,6 +45,7 @@ export function calcProcessingOutputValue(quantity: unknown, unitPrice: unknown)
 }
 
 export function calcSalesOutputValue(quantity: unknown, salesPrice: unknown): number | null {
+  if (quantity == null || salesPrice == null) return null;
   const q = Number(quantity);
   const p = Number(salesPrice);
   if (!Number.isFinite(q) || !Number.isFinite(p)) return null;
